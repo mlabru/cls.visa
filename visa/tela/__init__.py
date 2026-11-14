@@ -2,7 +2,7 @@
 As áreas da tela, uma classe por área (montadas por interface.pagina()):
 
     ┌──────────────────────────── Cabecalho ─────────────────────────────┐
-    │ ☰ CLS Visa  [modos] [terminal]      [Impacto] [Sonda] BarraSaude   │
+    │ ☰ CLS Visa  [modos] [terminal]      [FAB.ia]  [Sonda] BarraSaude   │
     ├──────────────┬───────────────────────────────────┬─────────────────┤
     │PainelCamadas │            AreaDoMapa             │ Gaveta:         │
     │ (gaveta da   │                        ┌────────┐ │  PainelImpacto  │
@@ -11,7 +11,7 @@ As áreas da tela, uma classe por área (montadas por interface.pagina()):
     └──────────────┴───────────────────────────────────┴─────────────────┘
 
   mapa.py           AreaDoMapa: o mapa, o fundo, e os lugares da legenda e da linha do tempo
-  cabecalho.py      Cabecalho: modos de trabalho, aeródromo do modo Terminal, botões Impacto e Sonda
+  cabecalho.py      Cabecalho: modos de trabalho, aeródromo do modo Terminal, botões FAB.ia (impacto) e Sonda
   barra_saude.py    BarraSaude: idade e situação de cada fonte de dados ligada
   gaveta.py         Gaveta (à direita, com abas), PainelSonda, PainelImpacto
   legenda.py        Legenda: só das camadas ligadas

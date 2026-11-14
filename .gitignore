@@ -9,8 +9,6 @@
 logs/
 tst_env/
 
-CLAUDE.md
-
 # ambiente Python e caches
 .venv
 __pycache__/

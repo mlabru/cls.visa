@@ -1,10 +1,10 @@
 """
 Cabecalho: a faixa do topo.
 
-  ☰  CLS Visa  [Convecção|Altitude|Terminal] [aeródromo]  personalizado   [Impacto ³] [Sonda]  BarraSaude
+  ☰  CLS Visa  [Convecção|Altitude|Terminal] [aeródromo]  personalizado   [FAB.ia ³] [Sonda]  BarraSaude
 
 Os modos (modos.py) só mudam as preferências; os controles do painel, ligados a elas,
-fazem o resto. Os botões Impacto e Sonda chamam os painéis da gaveta da direita.
+fazem o resto. Os botões FAB.ia (impacto) e Sonda chamam os painéis da gaveta da direita.
 """
 from nicegui import ui
 
@@ -48,7 +48,7 @@ class Cabecalho:
                 lambda: self.aproximar_terminal() if self.seletor_terminal.visible else None)
             self.rotulo_modo = ui.label().classes('text-caption text-grey-6')
             ui.space()
-            with ui.button('Impacto', icon='warning', on_click=painel_impacto.alternar) \
+            with ui.button('FAB.ia', icon='warning', on_click=painel_impacto.alternar) \
                     .props(f'dense no-caps size=sm unelevated {COR_DESLIGADO}') \
                     .tooltip('Aeródromos, TMAs e tráfego afetados agora'):
                 self.selo_impacto = ui.badge('', color='red').props('rounded').classes('q-ml-xs')
@@ -99,10 +99,10 @@ class Cabecalho:
             self.mapa.set_center((alvo.lat, alvo.lon))
             self.mapa.set_zoom(modos.ZOOM_TERMINAL)
 
-    # --- Botões Impacto e Sonda ------------------------------------------------------
+    # --- Botões FAB.ia e Sonda -------------------------------------------------------
 
     def contar_impacto(self) -> None:
-        """O número no botão Impacto: aeródromos e TMAs com impacto alto ou médio."""
+        """O número no botão FAB.ia: aeródromos e TMAs com impacto alto ou médio."""
         s = impacto.situacao
         graves = sum(1 for i in s.aerodromos + s.tmas if i.nivel in (impacto.ALTO, impacto.MEDIO))
         self.selo_impacto.set_text(str(graves))

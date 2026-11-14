@@ -1,6 +1,6 @@
 """
 A gaveta da direita, com duas abas:
-  Impacto   aeródromos, TMAs e tráfego afetados agora (calculado no servidor, impacto.py)
+  FAB.ia    (impacto) aeródromos, TMAs e tráfego afetados agora (calculado no servidor, impacto.py)
   Sonda     tudo sobre um ponto do mapa (sonda.py)
 
 Gaveta só abre, fecha e troca de aba; cada painel desenha o seu conteúdo.
@@ -28,7 +28,7 @@ class Gaveta:
         self.gaveta = ui.right_drawer(value=False).props('width=350 bordered').classes('q-pa-sm painel')
         with self.gaveta:
             with ui.tabs().props('dense align=justify narrow-indicator').classes('w-full text-grey-5') as abas:
-                ui.tab(IMPACTO, label='Impacto', icon='warning')
+                ui.tab(IMPACTO, label='FAB.ia', icon='warning')
                 ui.tab(SONDA, label='Sonda', icon='ads_click')
             with ui.tab_panels(abas, value=IMPACTO).classes('w-full bg-transparent') as self.paineis:
                 self.aba_impacto = ui.tab_panel(IMPACTO).classes('q-pa-none q-pt-sm')
@@ -246,7 +246,7 @@ class PainelImpacto:
         ui.timer(self.REDESENHO_S, self.desenhar)
 
     def alternar(self) -> None:
-        """Botão "Impacto" do cabeçalho: abre a aba (ou fecha, se já estava aberta nela)."""
+        """Botão "FAB.ia" do cabeçalho: abre a aba (ou fecha, se já estava aberta nela)."""
         if self.gaveta.mostrando(IMPACTO):
             self.gaveta.esconder()
         else:
