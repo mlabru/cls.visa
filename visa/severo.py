@@ -34,7 +34,7 @@ _cache: tuple[float, list[dict]] = (0.0, [])
 
 
 class Indisponivel(Exception):
-    """GeoServer fora do ar ou resposta inválida."""
+    """GeoServer fora do ar ou resposta inválida. A mensagem já vem pronta para a tela."""
 
 
 async def _wfs(**parametros) -> dict:
@@ -47,7 +47,7 @@ async def _wfs(**parametros) -> dict:
         resposta.raise_for_status()
         return resposta.json()
     except (httpx.HTTPError, ValueError) as erro:
-        raise Indisponivel(f'{type(erro).__name__}') from erro
+        raise Indisponivel(f'GeoServer inacessível ({type(erro).__name__})') from erro
 
 
 # ---------------------------------------------------------------------------

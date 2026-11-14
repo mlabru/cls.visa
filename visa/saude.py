@@ -108,7 +108,10 @@ def severo(rodada: str | None, validade: str | None, erro: str = '', agora: date
         return Indicador('Severo', 'fora', CRITICO, erro)
     if not rodada:
         return Indicador('Severo', '…', SEM_DADOS, 'Catálogo ainda não carregado')
-    inicio = datetime.fromisoformat(rodada)      # Python 3.11+ aceita o 'Z'
+    try:
+        inicio = datetime.fromisoformat(rodada)  # Python 3.11+ aceita o 'Z'
+    except ValueError:                           # catálogo com data estranha: avisa, não derruba a barra
+        return Indicador('Severo', '?', ATENCAO, f'Rodada ilegível no catálogo: {rodada[:30]}')
     s = (_agora(agora) - inicio).total_seconds()
     detalhe = f'Rodada {inicio:%d/%m %H:%MZ}'
     if validade:

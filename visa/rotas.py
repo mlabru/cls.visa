@@ -15,6 +15,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import httpx
 
+import cache
 import config
 
 log = logging.getLogger('rotas')
@@ -22,6 +23,7 @@ log = logging.getLogger('rotas')
 INDICATIVO = re.compile(r'[A-Z0-9]{2,10}')   # vai no caminho da URL: nada além disso
 DISTANCIA_MIN_GRAUS = 0.01                  # ~1 km: pontos mais próximos que isso são descartados
 CACHE_S = 60
+CACHE_MAX = 200                             # indicativos guardados (os mais antigos saem)
 
 _cliente = httpx.AsyncClient(timeout=httpx.Timeout(20, connect=5))
 _cache: dict[str, tuple[float, 'Rota | None']] = {}
@@ -92,5 +94,5 @@ async def buscar(indicativo: str, hoje: date | None = None) -> Rota | None:
         return guardado[1]
     hoje = hoje or datetime.now(UTC).date()
     rota = await _consultar(indicativo, hoje) or await _consultar(indicativo, hoje - timedelta(days=1))
-    _cache[indicativo] = (time.monotonic(), rota)
+    cache.guardar(_cache, indicativo, (time.monotonic(), rota), CACHE_MAX)
     return rota

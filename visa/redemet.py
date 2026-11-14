@@ -17,7 +17,7 @@ Caches (todos em memória, perdidos ao reiniciar — de propósito: os dados env
                um PNG de 400×400 leva ~1 ms, e 400 matrizes ocupariam ~250 MB.
   _cache_img   imagem PRONTA para o navegador (reprojetada, filtrada) por (caminho, área, dBZ).
                Permite à animação preparar tudo antes de tocar.
-Todos têm tamanho máximo e descartam o item mais antigo (ver `guardar_no_cache`).
+Todos têm tamanho máximo e descartam o item mais antigo (ver `cache.guardar`).
 """
 import asyncio
 import io
@@ -33,6 +33,7 @@ import httpx
 import numpy as np
 from PIL import Image
 
+import cache
 import config
 import radar
 
@@ -91,17 +92,6 @@ _cliente = httpx.AsyncClient(timeout=httpx.Timeout(20, connect=5))
 _cache_api: dict[tuple, tuple[float, object]] = {}
 _cache_img: dict[tuple, tuple[bytes, str]] = {}
 _pngs: dict[str, bytes] = {}
-
-
-def guardar_no_cache(cache: dict, chave, valor, limite: int = IMAGENS_EM_CACHE) -> None:
-    """Guarda no cache; se passou do limite, descarta o item mais antigo.
-
-    Um dict do Python lembra a ordem de inserção, então `next(iter(cache))` é o mais antigo
-    (FIFO). Não é LRU, mas para dados que envelhecem sozinhos dá no mesmo, sem dependência.
-    """
-    cache[chave] = valor
-    while len(cache) > limite:
-        cache.pop(next(iter(cache)))
 
 
 # ---------------------------------------------------------------------------
@@ -398,10 +388,10 @@ def imagem_raios(chave: str) -> tuple[int, bytes, str]:
     quadro = _quadros_raios.get(chave)
     if quadro is None:
         return 404, b'quadro desconhecido', 'text/plain'
-    cache = ('raios', chave)
-    if cache not in _cache_img:
-        guardar_no_cache(_cache_img, cache, (desenhar_raios(quadro), 'image/png'))
-    return 200, *_cache_img[cache]
+    chave_img = ('raios', chave)
+    if chave_img not in _cache_img:
+        cache.guardar(_cache_img, chave_img, (desenhar_raios(quadro), 'image/png'), IMAGENS_EM_CACHE)
+    return 200, *_cache_img[chave_img]
 
 
 async def buscar_imagem(caminho: str, sul: float, norte: float, dbz_min: int = 0) -> tuple[int, bytes, str]:
@@ -421,7 +411,7 @@ async def buscar_imagem(caminho: str, sul: float, norte: float, dbz_min: int = 0
     except OSError as erro:              # PNG corrompido
         log.warning('imagem da REDEMET ilegível: %s (%s)', caminho, erro)
         return 502, b'imagem da REDEMET ilegivel', 'text/plain'
-    guardar_no_cache(_cache_img, chave, (conteudo, tipo))
+    cache.guardar(_cache_img, chave, (conteudo, tipo), IMAGENS_EM_CACHE)
     return 200, conteudo, tipo
 
 
@@ -462,7 +452,7 @@ async def png_original(caminho: str) -> bytes | None:
         log.warning('imagem da REDEMET falhou: %s (%s)', caminho, type(erro).__name__)
         return None
     if caminho.startswith('radar/'):
-        guardar_no_cache(_pngs, caminho, resposta.content)
+        cache.guardar(_pngs, caminho, resposta.content, IMAGENS_EM_CACHE)
     return resposta.content
 
 

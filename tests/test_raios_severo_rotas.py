@@ -157,3 +157,22 @@ def test_rota_tenta_ontem_quando_hoje_nao_tem(monkeypatch):
     assert [u.rsplit('/', 2)[-2:] for u in urls] == [['GLO1748', '2026-11-13'], ['GLO1748', '2026-11-12']]
     asyncio.run(rotas.buscar('GLO1748', hoje=date(2026, 11, 13)))
     assert len(urls) == 2                                   # segunda vez veio do cache
+
+
+def test_mensagem_do_severo_vem_pronta(monkeypatch):
+    # A tela mostrava "GeoServer inacessível (GeoServer inacessível)"
+    transporte = httpx.MockTransport(lambda pedido: httpx.Response(500))
+    monkeypatch.setattr(severo, '_cliente', httpx.AsyncClient(transport=transporte))
+    monkeypatch.setattr(severo.radar, '_indisponivel_ate', 0.0)
+    with pytest.raises(severo.Indisponivel, match=r'^GeoServer inacessível \(HTTPStatusError\)$'):
+        asyncio.run(severo.catalogo(forcar=True))
+
+
+def test_rotas_cache_tem_limite(monkeypatch):
+    monkeypatch.setattr(rotas, '_cliente', httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda pedido: httpx.Response(404))))
+    monkeypatch.setattr(rotas, '_cache', {})
+    monkeypatch.setattr(rotas, 'CACHE_MAX', 3)
+    for i in range(5):
+        asyncio.run(rotas.buscar(f'TAM{i}', hoje=date(2026, 11, 13)))
+    assert list(rotas._cache) == ['TAM2', 'TAM3', 'TAM4']

@@ -1,3 +1,5 @@
+import asyncio
+
 import numpy as np
 
 import impacto
@@ -88,3 +90,16 @@ def test_celulas_fortes_ignoram_pixel_isolado():
     assert fortes == {impacto.chave_celula(-23.5, -46.5): 50}       # o pixel de 70 dBZ no canto não entra
     quadro = redemet.QuadroRaios(None, ((-20.05, -40.05, 3),))
     assert impacto.celulas_de_raios(quadro) == {impacto.chave_celula(-20.05, -40.05): 3}
+
+
+def test_erro_some_quando_a_api_volta_sem_quadro_novo(monkeypatch):
+    # Antes, o aviso só sumia com um quadro de radar novo (até ~20 min depois de a API voltar)
+    async def vazio(*_):
+        return []
+
+    monkeypatch.setattr(redemet, 'radar_quadros', vazio)
+    monkeypatch.setattr(redemet, 'raios_quadros', vazio)
+    monkeypatch.setattr(impacto.aerodromos.situacao, 'aerodromos', ['algum'])
+    monkeypatch.setattr(impacto, 'situacao', impacto.Situacao(erro='API da REDEMET indisponível', versao=1))
+    asyncio.run(impacto.atualizar())
+    assert impacto.situacao.erro == '' and impacto.situacao.versao == 1     # nada recalculado

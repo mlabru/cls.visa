@@ -31,7 +31,7 @@ import math
 import statistics
 import sys
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -187,7 +187,7 @@ def estimar(lista: list[Nucleo]) -> list[Nucleo]:
 
 
 def _com_movimento(n: Nucleo, vn: float, ve: float, movimento: str) -> Nucleo:
-    return Nucleo(n.fonte, n.celulas, n.lat, n.lon, n.intensidade, n.quando, n.raios, vn, ve, movimento)
+    return replace(n, vn=vn, ve=ve, movimento=movimento)
 
 
 def anterior(quadros: list, ultimo) -> object | None:

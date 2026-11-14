@@ -11,6 +11,7 @@ Padrões que se repetem nas classes (explicados em DECISOES.md):
   self.prefs     é o MESMO dicionário de preferências da interface (não uma cópia).
 Os atributos de tela (ui.label etc.) começam como None e são preenchidos pela interface.
 """
+import logging
 from datetime import UTC, datetime
 from typing import ClassVar
 
@@ -33,6 +34,8 @@ import rotas
 import severo
 import vento
 import wifs
+
+log = logging.getLogger(__name__)
 
 # Opacidades das imagens: o radar deixa ver o satélite e o mapa por baixo; os raios (pequenos
 # quadrados coloridos) ficam quase opacos para não sumir sobre o radar.
@@ -328,7 +331,6 @@ class CamadaAnimacao:
             relampagos = await redemet.raios_quadros() if com_raios else []
             passos = animacao.linha_do_tempo(satelites, quadros, janela, relampagos)
             if not passos:
-                self.preparando = False
                 self._informar('a REDEMET não devolveu imagens para animar')
                 return
             imagens = {passo.satelite.url(): (passo.satelite, 0) for passo in passos if passo.satelite}
@@ -339,10 +341,16 @@ class CamadaAnimacao:
             for quadro in quadros_raios.values():          # desenhadas aqui mesmo (rápido)
                 redemet.imagem_raios(quadro.chave)
         except redemet.Indisponivel as erro:
-            self.preparando = False
             self._informar(str(erro))
             return
-        self.preparando = False
+        except Exception:
+            # Qualquer outra falha (resposta inesperada da API, por exemplo): avisa e registra.
+            # Sem isto o erro sumiria no log e o botão ficaria "preparando" para sempre.
+            log.exception('animação: falha ao preparar')
+            self._informar('falha ao preparar a animação (detalhes no log)')
+            return
+        finally:
+            self.preparando = False     # em qualquer saída: o botão volta a funcionar
         if self.assinatura() != inicio:     # a pessoa mudou as camadas enquanto preparava
             self._informar('as camadas mudaram: tente de novo')
             return
@@ -691,7 +699,7 @@ class CamadaSevero:
             self.cat = await severo.catalogo(forcar)
             self.erro = ''
         except severo.Indisponivel as erro:
-            self.erro = f'GeoServer inacessível ({erro})'
+            self.erro = str(erro)
             self._informar(self.erro, 'negative')
             return
         if not self.cat:
@@ -738,7 +746,7 @@ class CamadaSevero:
             feicoes = await severo.feicoes(cql)
             self.erro = ''
         except severo.Indisponivel as erro:
-            self.erro = f'GeoServer inacessível ({erro})'
+            self.erro = str(erro)
             self._informar(self.erro, 'negative')
             return
         if pedido != self._pedido:   # o usuário já pediu outra coisa enquanto esta chegava

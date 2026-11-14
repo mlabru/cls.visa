@@ -25,6 +25,7 @@ import numpy as np
 
 import aerodromos
 import aeronaves
+import cache
 import espaco
 import geo
 import previsao
@@ -368,6 +369,7 @@ async def atualizar() -> None:
     except redemet.Indisponivel as erro:
         situacao.erro = str(erro)
         return
+    situacao.erro = ''          # a API respondeu: o aviso some já, mesmo sem quadro novo
     if not aerodromos.situacao.aerodromos:
         await aerodromos.obter()
     ultimo_radar = quadros[-1] if quadros else None
@@ -384,7 +386,8 @@ async def atualizar() -> None:
                 bruta = await redemet.imagem_bruta(imagem)
                 if bruta is None:
                     continue
-                redemet.guardar_no_cache(_eco_cache, imagem.caminho, (np.packbits(bruta[..., 3] > 0), bruta.shape[:2]))
+                cache.guardar(_eco_cache, imagem.caminho, (np.packbits(bruta[..., 3] > 0), bruta.shape[:2]),
+                              redemet.IMAGENS_EM_CACHE)
             empacotada, forma = _eco_cache[imagem.caminho]
             mascaras.setdefault(imagem.codigo, []).append(
                 np.unpackbits(empacotada)[:forma[0] * forma[1]].reshape(forma).astype(bool))
@@ -400,7 +403,7 @@ async def atualizar() -> None:
     log.info('impacto: %d aeródromos, %d TMAs, %d células de perigo (%.1f s)',
              len(lista_a), len(lista_t), len(perigo), time.monotonic() - inicio)
     situacao.aerodromos, situacao.tmas, situacao.perigo = lista_a, lista_t, perigo
-    situacao.radar_quando, situacao.raios_quando, situacao.erro = radar_quando, raios_quando, ''
+    situacao.radar_quando, situacao.raios_quando = radar_quando, raios_quando
     situacao.versao += 1
 
 

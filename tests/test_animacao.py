@@ -1,8 +1,12 @@
+import asyncio
+import copy
 from datetime import UTC, datetime, timedelta
 
 import animacao
+import camadas
 import config
 import redemet
+from interface import PADRAO
 
 E = config.REDEMET_ESTATICO_URL
 T0 = datetime(2026, 11, 13, 14, 0, tzinfo=UTC)
@@ -68,3 +72,16 @@ def test_quadros_do_satelite():
                           {'data': None, 'path': f'{E}/satelite/c.png'}]}
     lista = redemet.converter_satelite_quadros(dados)
     assert [i.caminho for i in lista] == ['satelite/a.png', 'satelite/b.png']
+
+
+def test_falha_inesperada_nao_trava_a_animacao(monkeypatch):
+    # Antes, um erro que não fosse Indisponivel deixava `preparando` ligado: o botão parava de vez
+    async def quebra(*_):
+        raise AttributeError("'list' object has no attribute 'get'")
+
+    monkeypatch.setattr(redemet, 'satelite_quadros', quebra)
+    prefs = copy.deepcopy(PADRAO) | {'radar_ligado': False, 'raios_ligado': False, 'satelite_ligado': True}
+    anima = camadas.CamadaAnimacao(None, prefs, None, None, None)
+    asyncio.run(anima.iniciar())
+    assert not anima.preparando and not anima.ativa
+    assert 'falha' in anima.aviso

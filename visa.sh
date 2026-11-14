@@ -6,7 +6,7 @@
 # Comandos:
 #   instalar    instala as dependências no .venv (requirements e requirements-dev)
 #   rodar       roda em primeiro plano (Ctrl+C para parar)
-#   iniciar     roda em segundo plano; saída em logs/visa.log
+#   iniciar     roda em segundo plano; saída em logs/visa.log (outra porta: logs/visa.<porta>.log)
 #   parar       para o que foi iniciado com "iniciar"
 #   reiniciar   parar + iniciar
 #   estado      está rodando? responde? .env, vento e espaço aéreo presentes?
@@ -24,8 +24,6 @@ cd "$RAIZ"                      # o NiceGUI grava .nicegui/ na pasta atual: semp
 
 PY="$RAIZ/.venv/bin/python"
 LOGS="$RAIZ/logs"
-PIDS="$LOGS/visa.pid"
-LOG="$LOGS/visa.log"
 
 # --- auxiliares --------------------------------------------------------------
 
@@ -38,6 +36,14 @@ porta() {
     p="$(grep -E '^VISA_PORTA=' .env 2>/dev/null | tail -1 | cut -d= -f2 | tr -d ' "'"'" || true)"
     echo "${p:-8090}"
 }
+
+# Cada porta tem o seu PID, o seu log e os seus registros do FAB.ia: uma instância de teste
+# (VISA_PORTA=8091) não se confunde com a principal nem mistura as estatísticas dela.
+# A porta 8090 mantém os nomes sem sufixo.
+SUFIXO=""; [[ "$(porta)" == 8090 ]] || SUFIXO=".$(porta)"
+PIDS="$LOGS/visa$SUFIXO.pid"
+LOG="$LOGS/visa$SUFIXO.log"
+export VISA_PREVISAO_DIR="${VISA_PREVISAO_DIR:-$LOGS/previsao$SUFIXO}"
 
 exige_venv() { [[ -x "$PY" ]] || erro ".venv não encontrado em $RAIZ (crie com: python3 -m venv .venv)"; }
 exige_env()  { [[ -f .env ]]  || erro ".env não encontrado (copie .env.exemplo para .env e preencha)"; }

@@ -73,3 +73,8 @@ def test_satelite():
     assert saude.satelite(AGORA - timedelta(hours=2), agora=AGORA).nivel == saude.CRITICO
     assert saude.satelite(None, 'API da REDEMET indisponível').texto == 'fora'
     assert saude.radar([], True, AGORA, erro='API da REDEMET indisponível').texto == 'fora'
+
+
+def test_severo_com_rodada_ilegivel_nao_derruba_a_barra():
+    ind = saude.severo('ontem de manhã', None, agora=AGORA)
+    assert ind.nivel == saude.ATENCAO and 'ilegível' in ind.detalhe
