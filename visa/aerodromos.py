@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 import httpx
 
+import cache
 import config
 
 log = logging.getLogger('aerodromos')
@@ -83,7 +84,7 @@ _trava = asyncio.Lock()
 
 
 def _cache_valido() -> bool:
-    return bool(situacao.aerodromos) and time.monotonic() - situacao.consultado_em < config.AERODROMOS_CACHE_S
+    return bool(situacao.aerodromos) and cache.ainda_vale(situacao.consultado_em, config.AERODROMOS_CACHE_S)
 
 
 async def obter() -> list[Aerodromo]:

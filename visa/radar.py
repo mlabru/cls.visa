@@ -21,6 +21,7 @@ import numpy as np
 from PIL import Image
 
 import config
+import datas
 
 
 @dataclass(frozen=True)
@@ -357,14 +358,6 @@ def filtro_status(produto: str, alcance: str, altura: str) -> str:
     return cql + f' AND elevacao={altura}' if produto == 'cappi' else cql
 
 
-def _data_utc(texto: str) -> datetime | None:
-    try:
-        d = datetime.fromisoformat(str(texto))     # desde o Python 3.11 aceita o sufixo 'Z'
-    except ValueError:
-        return None
-    return d if d.tzinfo else d.replace(tzinfo=UTC)
-
-
 async def buscar_status(produto: str, alcance: str, altura: str) -> dict[str, datetime] | None:
     """{código do radar: horário da última imagem}. None se o GeoServer não respondeu
     (diferente de {} = respondeu, mas nenhum radar tem dados)."""
@@ -384,7 +377,7 @@ async def buscar_status(produto: str, alcance: str, altura: str) -> dict[str, da
     for f in feicoes:
         p = f.get('properties') or {}
         codigo = codigos.get(str(p.get('radar_code', '')).upper())
-        quando = _data_utc(p.get('last_update', ''))
+        quando = datas.ler_iso(p.get('last_update'))
         if codigo and quando:
             saida[codigo] = quando
     return saida

@@ -966,22 +966,8 @@ class CamadasEspaco:
         rotulo = self.rotulos_fonte.get(chave)
         if not rotulo:
             return
-        caminho = espaco.arquivo_local(chave)
-        if caminho is None:
-            rotulo.set_text('fonte: imagens do DECEA')
-            rotulo.classes(replace='text-caption text-grey q-pl-lg')
-            return
-        emenda, proxima = espaco.validade(caminho)
-        if proxima:  # o próprio arquivo diz até quando vale (próxima emenda AIRAC)
-            hoje = datetime.now(UTC).date().isoformat()
-            velho = hoje >= proxima
-            fim = f'{proxima[8:10]}/{proxima[5:7]}'
-            rotulo.set_text(f'fonte: arquivo local, AIRAC de {emenda[8:10]}/{emenda[5:7]}' +
-                            (f' · VENCIDO em {fim}, baixe de novo' if velho else f', válido até {fim}'))
-        else:
-            dias = espaco.idade_dias(caminho)
-            velho = dias > espaco.CICLO_AIRAC_DIAS
-            rotulo.set_text(f'fonte: arquivo local, há {dias:.0f} dias' + (' · ciclo AIRAC vencido?' if velho else ''))
+        texto, velho = espaco.texto_fonte(espaco.arquivo_local(chave), datetime.now(UTC).date().isoformat())
+        rotulo.set_text(texto)
         rotulo.classes(replace='text-caption q-pl-lg ' + ('text-warning' if velho else 'text-grey'))
 
     def mudar_estilo(self, chave: str) -> None:

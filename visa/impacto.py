@@ -16,7 +16,6 @@ Os níveis (alto, médio, baixo) e os motivos ficam em funções puras, fáceis 
 import asyncio
 import json
 import logging
-import math
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -73,7 +72,7 @@ class Situacao:
     raios_quando: datetime | None = None
     aerodromos: list[Impacto] = field(default_factory=list)
     tmas: list[Impacto] = field(default_factory=list)
-    perigo: dict[tuple[int, int], str] = field(default_factory=dict)   # célula 0,1° -> motivo
+    perigo: dict[geo.Chave, str] = field(default_factory=dict)   # célula 0,1° -> motivo
     erro: str = ''
     versao: int = 0
 
@@ -127,11 +126,6 @@ def classificar_tma(dbz: int | None, celulas: int, novas: int) -> tuple[str | No
     else:
         return None, [], 0
     return nivel, motivos, (dbz or 0) + 5 * celulas + 5 * novas
-
-
-def chave_celula(lat: float, lon: float) -> tuple[int, int]:
-    """Célula de 0,1° que contém o ponto (mesma grade dos raios da REDEMET)."""
-    return math.floor(lat * 10), math.floor(lon * 10)
 
 
 def ordenar(lista: list[Impacto]) -> list[Impacto]:
@@ -304,44 +298,42 @@ def avaliar_tma(sigla: str, nome: str, aneis: list, campos: list, celulas: tuple
 # Cálculo da situação (uma vez por minuto, para todos)
 # ---------------------------------------------------------------------------
 
-def mapa_de_perigo(campos: list, celulas: tuple) -> dict[tuple[int, int], str]:
+def mapa_de_perigo(campos: list, celulas: tuple) -> dict[geo.Chave, str]:
     """Células de 0,1° perigosas para o tráfego: com raios (e as vizinhas) ou eco forte."""
-    perigo: dict[tuple[int, int], str] = {}
+    perigo: dict[geo.Chave, str] = {}
     for imagem, campo in campos:
         li, co = np.nonzero(np.nan_to_num(campo) >= ECO_FORTE_DBZ)
         if li.size:
             lats, lons = coordenadas(imagem, campo.shape)
             for la, lo in zip(lats[li], lons[co]):
-                perigo.setdefault(chave_celula(la, lo), f'eco ≥ {ECO_FORTE_DBZ} dBZ')
+                perigo.setdefault(geo.chave_celula(la, lo), f'eco ≥ {ECO_FORTE_DBZ} dBZ')
     for la, lo, _ in celulas:
-        base = chave_celula(la, lo)
-        for d_la in (-1, 0, 1):
-            for d_lo in (-1, 0, 1):
-                chave = (base[0] + d_la, base[1] + d_lo)
-                if d_la == d_lo == 0 or chave not in perigo or 'raios' not in perigo[chave]:
-                    perigo[chave] = 'raios na célula' if d_la == d_lo == 0 else 'raios a menos de 10 km'
+        base = geo.chave_celula(la, lo)
+        for chave in geo.vizinhas(base):
+            if chave == base or chave not in perigo or 'raios' not in perigo[chave]:
+                perigo[chave] = 'raios na célula' if chave == base else 'raios a menos de 10 km'
     return perigo
 
 
-def celulas_fortes(campos: list) -> dict[tuple[int, int], int]:
+def celulas_fortes(campos: list) -> dict[geo.Chave, int]:
     """Células de 0,1° com eco forte: chave -> dBZ (robusto). Para os núcleos da previsão.
 
     Mais exigente que `mapa_de_perigo`: a célula precisa de PIXELS_MINIMOS pixels fortes, para
     um pixel isolado não virar um núcleo que "anda" e gera conflitos falsos.
     """
-    pixels: dict[tuple[int, int], list[float]] = {}
+    pixels: dict[geo.Chave, list[float]] = {}
     for imagem, campo in campos:
         li, co = np.nonzero(np.nan_to_num(campo) >= ECO_FORTE_DBZ)
         if li.size:
             lats, lons = coordenadas(imagem, campo.shape)
             for la, lo, v in zip(lats[li], lons[co], campo[li, co]):
-                pixels.setdefault(chave_celula(la, lo), []).append(float(v))
+                pixels.setdefault(geo.chave_celula(la, lo), []).append(float(v))
     return {k: dbz for k, valores in pixels.items() if (dbz := dbz_robusto(np.array(valores))) is not None}
 
 
-def celulas_de_raios(quadro: redemet.QuadroRaios) -> dict[tuple[int, int], int]:
+def celulas_de_raios(quadro: redemet.QuadroRaios) -> dict[geo.Chave, int]:
     """Células com raios do quadro: chave -> minutos ativa."""
-    return {chave_celula(la, lo): m for la, lo, m in quadro.celulas}
+    return {geo.chave_celula(la, lo): m for la, lo, m in quadro.celulas}
 
 
 def _nucleos(campos: list, campos_antes: list, radar_quando, radar_antes_quando,
@@ -452,4 +444,4 @@ async def vigiar() -> None:
 
 
 def alerta_da_aeronave(lat: float, lon: float) -> str | None:
-    return situacao.perigo.get(chave_celula(lat, lon))
+    return situacao.perigo.get(geo.chave_celula(lat, lon))

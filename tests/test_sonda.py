@@ -18,19 +18,6 @@ def test_pixel_e_dbz():
     assert sonda.dbz_da_cor(np.array([128, 128, 128, 255])) is None             # cinza: abaixo de 0 dBZ
 
 
-def test_vento_no_ponto():
-    cabecalho = {'lo1': 300.0, 'la1': 0.0, 'dx': 1.0, 'dy': 1.0, 'nx': 3, 'ny': 3}
-    u = {'header': cabecalho, 'data': [0.0] * 9}
-    v = {'header': cabecalho, 'data': [0.0] * 9}
-    u['data'][4], v['data'][4] = 10.0, 0.0           # (lat -1, lon -59): vento de oeste, 10 m/s
-    assert sonda.vento_no_ponto([u, v], -1, -59) == (270, 19)
-    v['data'][4], u['data'][4] = -10.0, 0.0          # vem do norte
-    assert sonda.vento_no_ponto([u, v], -1, -59) == (360, 19)
-    assert sonda.vento_no_ponto([u, v], -20, -59) is None                     # fora da grade
-    assert [sonda.fl_da_pressao(p) for p in (25000, 50000, 85000)] == [340, 180, 50]   # como no painel
-    assert sonda.fl_da_pressao(12500) == 475                                       # fora da tabela: padrão
-
-
 def test_raios_perto():
     quando = datetime(2026, 11, 13, 17, 0, tzinfo=UTC)
     quadro = redemet.QuadroRaios(quando, ((-23.45, -46.45, 5), (-23.55, -46.55, 40), (-25.0, -46.5, 0)))

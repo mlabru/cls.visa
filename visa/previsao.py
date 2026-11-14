@@ -44,7 +44,6 @@ import geo
 
 log = logging.getLogger(__name__)
 
-GRADE = 0.1                    # graus: a mesma grade das células de raios da REDEMET
 HORIZONTE_MIN = 30             # até quanto tempo à frente se procura conflito
 RAIO_CONFLITO_KM = 10          # distância ao centro da célula que conta como "dentro" (meia célula ≈ 5,5 km + folga)
 FL_MIN = 100                   # só aeronaves em rota: abaixo disso, subida e descida tornam a reta inútil
@@ -80,18 +79,10 @@ class Desfecho(StrEnum):
 # Núcleos
 # ---------------------------------------------------------------------------
 
-Chave = tuple[int, int]
-
-
-def centro(chave: Chave) -> tuple[float, float]:
-    """Centro (lat, lon) da célula de 0,1°."""
-    return (chave[0] + 0.5) * GRADE, (chave[1] + 0.5) * GRADE
-
-
 @dataclass(frozen=True)
 class Nucleo:
     fonte: str                          # RADAR (eco forte) ou RAIOS
-    celulas: tuple[Chave, ...]
+    celulas: tuple[geo.Chave, ...]
     lat: float                          # centro do núcleo (média dos centros das células)
     lon: float
     intensidade: int                    # radar: dBZ máximo; raios: nº de células com raios
@@ -124,37 +115,34 @@ class Nucleo:
         return texto + f', vai para {self.direcao} a {self.velocidade_kmh:.0f} km/h{estimado}'
 
 
-def agrupar(chaves) -> list[list[Chave]]:
+def agrupar(chaves) -> list[list[geo.Chave]]:
     """Células vizinhas (inclusive na diagonal) formam um grupo. Busca em largura, sem biblioteca."""
     restantes, grupos = set(chaves), []
     while restantes:
         fila = [restantes.pop()]
         grupo = []
         while fila:
-            i, j = fila.pop()
-            grupo.append((i, j))
-            for di in (-1, 0, 1):
-                for dj in (-1, 0, 1):
-                    vizinha = (i + di, j + dj)
-                    if vizinha in restantes:
-                        restantes.remove(vizinha)
-                        fila.append(vizinha)
+            atual = fila.pop()
+            grupo.append(atual)
+            for vizinha in geo.vizinhas(atual):
+                if vizinha in restantes:
+                    restantes.remove(vizinha)
+                    fila.append(vizinha)
         grupos.append(sorted(grupo))
     return grupos
 
 
-def nucleos(celulas: dict[Chave, int], fonte: str, quando: datetime,
-            com_raios: set[Chave] = frozenset()) -> list[Nucleo]:
+def nucleos(celulas: dict[geo.Chave, int], fonte: str, quando: datetime,
+            com_raios: set[geo.Chave] = frozenset()) -> list[Nucleo]:
     """Núcleos de um quadro. `celulas`: chave -> dBZ (radar) ou minutos ativa (raios)."""
     saida = []
     for grupo in agrupar(celulas):
-        centros = [centro(c) for c in grupo]
+        centros = [geo.centro(c) for c in grupo]
         lat = sum(c[0] for c in centros) / len(centros)
         lon = sum(c[1] for c in centros) / len(centros)
         if fonte == RADAR:
             intensidade = max(celulas[c] for c in grupo)
-            raios = sum(1 for i, j in grupo
-                        if any((i + di, j + dj) in com_raios for di in (-1, 0, 1) for dj in (-1, 0, 1)))
+            raios = sum(1 for c in grupo if any(v in com_raios for v in geo.vizinhas(c)))
         else:
             intensidade = raios = len(grupo)
         saida.append(Nucleo(fonte, tuple(grupo), lat, lon, intensidade, quando, raios))
@@ -262,14 +250,14 @@ def conflito_da_aeronave(a, lista: list[Nucleo], agora: datetime) -> Conflito | 
             continue
         # Filtro rápido: nem a aeronave nem o núcleo andam o bastante para se encontrar
         alcance = km_por_min * HORIZONTE_MIN + math.hypot(n.vn, n.ve) * (idade + HORIZONTE_MIN) \
-            + len(n.celulas) * GRADE * geo.KM_POR_GRAU + RAIO_CONFLITO_KM
+            + len(n.celulas) * geo.GRADE * geo.KM_POR_GRAU + RAIO_CONFLITO_KM
         if geo.distancia_km(a.lat, a.lon, n.lat, n.lon) > alcance:
             continue
         # Em vez de mover o núcleo, move-se a aeronave no sentido contrário (dá no mesmo)
         cosseno = max(math.cos(math.radians(n.lat)), 0.01)
         rlat = plat - n.vn * (idade + t) / geo.KM_POR_GRAU
         rlon = plon - n.ve * (idade + t) / (geo.KM_POR_GRAU * cosseno)
-        centros = np.array([centro(c) for c in n.celulas])
+        centros = np.array([geo.centro(c) for c in n.celulas])
         dy = (rlat[:, None] - centros[None, :, 0]) * geo.KM_POR_GRAU
         dx = (rlon[:, None] - centros[None, :, 1]) * geo.KM_POR_GRAU * cosseno
         dmin = np.hypot(dx, dy).min(axis=1)
@@ -394,7 +382,7 @@ situacao = Situacao()
 class QuadroCelulas(NamedTuple):
     """As células de 0,1° de um quadro (radar ou raios), já calculadas por impacto.py."""
     quando: datetime
-    celulas: dict[Chave, int]           # radar: dBZ; raios: minutos ativa
+    celulas: dict[geo.Chave, int]       # radar: dBZ; raios: minutos ativa
 
 
 def atualizar_nucleos(radar: QuadroCelulas | None, radar_antes: QuadroCelulas | None,

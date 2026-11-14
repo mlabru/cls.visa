@@ -10,7 +10,6 @@ aeródromos). O radar é lido da cor do pixel das imagens — a mesma tabela de 
 filtro de dBZ.
 """
 import asyncio
-import math
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import NamedTuple
@@ -18,7 +17,6 @@ from typing import NamedTuple
 import numpy as np
 
 import aerodromos
-import config
 import geo
 import radar
 import redemet
@@ -26,7 +24,6 @@ import vento
 
 RAIOS_DISTANCIAS_KM = (10, 20, 50)
 RAIO_CELULAS_NOVAS_KM = 20
-KT_POR_MS = 1.943844
 
 
 # ---------------------------------------------------------------------------
@@ -51,36 +48,6 @@ def dbz_da_cor(rgba: np.ndarray) -> float | None:
         return None
     dbz = float(radar.classificar_cores(np.array([rgba[:3]]))[0])
     return None if dbz == radar.FUNDO or dbz < 0 else round(dbz)
-
-
-def vento_no_ponto(registros: list[dict], lat: float, lon: float) -> tuple[int, int] | None:
-    """(direção de onde vem, em graus; velocidade em kt) no ponto de grade mais próximo."""
-    try:
-        u_reg, v_reg = registros[0], registros[1]
-        h = u_reg['header']
-        col = round(((lon - h['lo1']) % 360) / h['dx'])
-        lin = round((h['la1'] - lat) / h['dy'])
-        if not (0 <= col < h['nx'] and 0 <= lin < h['ny']):
-            return None
-        u, v = u_reg['data'][lin * h['nx'] + col], v_reg['data'][lin * h['nx'] + col]
-    except (IndexError, KeyError, TypeError):
-        return None
-    if u is None or v is None:
-        return None
-    direcao = round((270 - math.degrees(math.atan2(v, u))) % 360)
-    return (direcao if direcao else 360), round(math.hypot(u, v) * KT_POR_MS)
-
-
-_FL_DA_PRESSAO = {pa: fl for fl, pa in config.VENTO_FL_PARA_PA.items()}
-
-
-def fl_da_pressao(pa: int) -> int:
-    """Nível de voo de um nível de pressão: o mesmo do painel de vento (500 hPa = FL180);
-    para os outros níveis, a atmosfera padrão arredondada de 5 em 5."""
-    if pa in _FL_DA_PRESSAO:
-        return _FL_DA_PRESSAO[pa]
-    pes = 145366.45 * (1 - (pa / 101325) ** 0.190284)
-    return round(pes / 100 / 5) * 5
 
 
 @dataclass(frozen=True)
@@ -225,9 +192,9 @@ def _vento(r: Resultado) -> None:
         return
     horario = arquivos[0].horario
     for arquivo in sorted((a for a in arquivos if a.horario == horario), key=lambda a: -a.pressao_pa):
-        valor = vento_no_ponto(vento.carregar_recortado(arquivo.caminho), r.lat, r.lon)
+        valor = vento.valor_no_ponto(vento.carregar_recortado(arquivo.caminho), r.lat, r.lon)
         if valor:
-            r.vento.append((fl_da_pressao(arquivo.pressao_pa), *valor))
+            r.vento.append((vento.fl_da_pressao(arquivo.pressao_pa), *valor))
     r.vento_referencia = horario
 
 

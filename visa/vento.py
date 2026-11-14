@@ -8,6 +8,7 @@ cada um com um `header` descrevendo a grade e uma lista `data` com os valores.
 A lista de horários disponíveis é montada lendo a pasta — não há lista fixa no código.
 """
 import json
+import math
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -15,6 +16,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import config
+import datas
 
 IDADE_ATUALIZA_S = 60   # o aviso de idade do arquivo no painel é refeito a cada minuto
 _PADRAO = re.compile(r'^wind_(\d{8}T\d{6}Z)_(\d+)\.json$')
@@ -90,9 +92,7 @@ def carregar_recortado(caminho: Path) -> list[dict]:
 def horario_referencia(dados: list[dict], arquivo: ArquivoVento) -> datetime:
     """Horário do `header.refTime` do JSON; se faltar, o do nome do arquivo."""
     texto = dados[0]['header'].get('refTime') if dados else None
-    if texto:
-        return datetime.fromisoformat(texto)       # Python 3.11+ aceita o 'Z'
-    return arquivo.horario
+    return datas.ler_iso(texto) or arquivo.horario
 
 
 def idade(referencia: datetime, agora: datetime | None = None) -> tuple[str, str]:
@@ -110,3 +110,40 @@ def idade(referencia: datetime, agora: datetime | None = None) -> tuple[str, str
     if horas <= config.VENTO_IDADE_VELHO_H:
         return texto, 'warning'
     return texto + ' · DESATUALIZADO', 'negative'
+
+
+# ---------------------------------------------------------------------------
+# Valor num ponto (para a sonda)
+# ---------------------------------------------------------------------------
+
+KT_POR_MS = 1.943844
+
+
+def valor_no_ponto(registros: list[dict], lat: float, lon: float) -> tuple[int, int] | None:
+    """(direção de onde vem, em graus; velocidade em kt) no ponto de grade mais próximo."""
+    try:
+        u_reg, v_reg = registros[0], registros[1]
+        h = u_reg['header']
+        col = round(((lon - h['lo1']) % 360) / h['dx'])
+        lin = round((h['la1'] - lat) / h['dy'])
+        if not (0 <= col < h['nx'] and 0 <= lin < h['ny']):
+            return None
+        u, v = u_reg['data'][lin * h['nx'] + col], v_reg['data'][lin * h['nx'] + col]
+    except (IndexError, KeyError, TypeError):
+        return None
+    if u is None or v is None:
+        return None
+    direcao = round((270 - math.degrees(math.atan2(v, u))) % 360)
+    return (direcao if direcao else 360), round(math.hypot(u, v) * KT_POR_MS)
+
+
+_FL_DA_PRESSAO = {pa: fl for fl, pa in config.VENTO_FL_PARA_PA.items()}
+
+
+def fl_da_pressao(pa: int) -> int:
+    """Nível de voo de um nível de pressão: o mesmo do painel de vento (500 hPa = FL180);
+    para os outros níveis, a atmosfera padrão arredondada de 5 em 5."""
+    if pa in _FL_DA_PRESSAO:
+        return _FL_DA_PRESSAO[pa]
+    pes = 145366.45 * (1 - (pa / 101325) ** 0.190284)
+    return round(pes / 100 / 5) * 5

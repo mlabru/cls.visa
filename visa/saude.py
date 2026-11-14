@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 
 import config
+import datas
 
 
 class Nivel(StrEnum):
@@ -55,6 +56,20 @@ def _agora(agora: datetime | None) -> datetime:
     return agora or datetime.now(UTC)
 
 
+def _segundos(quando: datetime | None, agora: datetime | None) -> float | None:
+    return None if quando is None else (_agora(agora) - quando).total_seconds()
+
+
+def _por_idade(fonte: str, segundos: float | None, erro: str, atencao_s: float, critico_s: float,
+               detalhe: str) -> Indicador:
+    """Fonte com um horário só (satélite, raios da API, aeródromos): fora, aguardando ou a idade."""
+    if erro:
+        return Indicador(fonte, 'fora', CRITICO, erro)
+    if segundos is None:
+        return Indicador(fonte, '…', SEM_DADOS, 'Aguardando a REDEMET')
+    return Indicador(fonte, idade_curta(segundos), _nivel(segundos, atencao_s, critico_s), detalhe)
+
+
 # ---------------------------------------------------------------------------
 # Uma função por fonte
 # ---------------------------------------------------------------------------
@@ -76,13 +91,8 @@ def radar(ultimas: list[datetime], status_ok: bool, erro: str = '',
 
 def satelite(quando: datetime | None, erro: str = '', agora: datetime | None = None) -> Indicador:
     """Imagem nova a cada 10 min, publicada com ~20–30 min de atraso: até 40 min está em dia."""
-    if erro:
-        return Indicador('Satélite', 'fora', CRITICO, erro)
-    if quando is None:
-        return Indicador('Satélite', '…', SEM_DADOS, 'Aguardando a REDEMET')
-    s = (_agora(agora) - quando).total_seconds()
-    return Indicador('Satélite', idade_curta(s), _nivel(s, 40 * 60, 70 * 60),
-                     f'Imagem de {quando:%d/%m %H:%MZ}')
+    detalhe = f'Imagem de {quando:%d/%m %H:%MZ}' if quando else ''
+    return _por_idade('Satélite', _segundos(quando, agora), erro, 40 * 60, 70 * 60, detalhe)
 
 
 def geoserver(fonte: str, ok: bool | None, texto_ok: str, detalhe_ok: str) -> Indicador:
@@ -96,13 +106,8 @@ def geoserver(fonte: str, ok: bool | None, texto_ok: str, detalhe_ok: str) -> In
 
 def raios_api(quando: datetime | None, erro: str = '', agora: datetime | None = None) -> Indicador:
     """Quadro novo a cada 6–7 min: até 15 min está em dia."""
-    if erro:
-        return Indicador('Raios', 'fora', CRITICO, erro)
-    if quando is None:
-        return Indicador('Raios', '…', SEM_DADOS, 'Aguardando a REDEMET')
-    s = (_agora(agora) - quando).total_seconds()
-    return Indicador('Raios', idade_curta(s), _nivel(s, 15 * 60, 30 * 60),
-                     f'Quadro de {quando:%d/%m %H:%MZ} (API da REDEMET)')
+    detalhe = f'Quadro de {quando:%d/%m %H:%MZ} (API da REDEMET)' if quando else ''
+    return _por_idade('Raios', _segundos(quando, agora), erro, 15 * 60, 30 * 60, detalhe)
 
 
 def raios(geoserver_ok: bool | None, fim: datetime | None) -> Indicador:
@@ -117,9 +122,8 @@ def severo(rodada: str | None, validade: str | None, erro: str = '', agora: date
         return Indicador('Severo', 'fora', CRITICO, erro)
     if not rodada:
         return Indicador('Severo', '…', SEM_DADOS, 'Catálogo ainda não carregado')
-    try:
-        inicio = datetime.fromisoformat(rodada)  # Python 3.11+ aceita o 'Z'
-    except ValueError:                           # catálogo com data estranha: avisa, não derruba a barra
+    inicio = datas.ler_iso(rodada)
+    if inicio is None:                           # catálogo com data estranha: avisa, não derruba a barra
         return Indicador('Severo', '?', ATENCAO, f'Rodada ilegível no catálogo: {rodada[:30]}')
     s = (_agora(agora) - inicio).total_seconds()
     detalhe = f'Rodada {inicio:%d/%m %H:%MZ}'
@@ -148,12 +152,7 @@ def trafego(conectado: bool, recebido_em: datetime | None, situacao: str,
 
 def aerodromos(idade_s: float | None, erro: str = '') -> Indicador:
     """idade_s: segundos desde a última consulta boa (None = nunca)."""
-    if erro:
-        return Indicador('Aeródromos', 'fora', CRITICO, erro)
-    if idade_s is None:
-        return Indicador('Aeródromos', '…', SEM_DADOS, 'Aguardando a REDEMET')
-    return Indicador('Aeródromos', idade_curta(idade_s), _nivel(idade_s, 20 * 60, 60 * 60),
-                     'Status METAR/TAF da REDEMET')
+    return _por_idade('Aeródromos', idade_s, erro, 20 * 60, 60 * 60, 'Status METAR/TAF da REDEMET')
 
 
 def airac(validades: dict[str, str | None], hoje: str) -> Indicador:
@@ -161,7 +160,7 @@ def airac(validades: dict[str, str | None], hoje: str) -> Indicador:
     vencidas = [c for c, proxima in validades.items() if proxima and hoje >= proxima]
     if vencidas:
         return Indicador('AIRAC', 'vencido', CRITICO, 'Baixe de novo: ' + ', '.join(sorted(vencidas)))
-    datas = sorted(p for p in validades.values() if p)
-    if not datas:
+    proximas = sorted(p for p in validades.values() if p)
+    if not proximas:
         return Indicador('AIRAC', '?', SEM_DADOS, 'Arquivos sem data de validade (ou imagens do DECEA)')
-    return Indicador('AIRAC', f'até {datas[0][8:10]}/{datas[0][5:7]}', OK, 'Espaço aéreo dentro do ciclo')
+    return Indicador('AIRAC', f'até {proximas[0][8:10]}/{proximas[0][5:7]}', OK, 'Espaço aéreo dentro do ciclo')

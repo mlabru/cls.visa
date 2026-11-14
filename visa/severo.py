@@ -16,7 +16,9 @@ from datetime import UTC, datetime
 
 import httpx
 
+import cache
 import config
+import datas
 import geo
 import radar
 
@@ -54,7 +56,7 @@ async def _wfs(**parametros) -> dict:
 async def catalogo(forcar: bool = False) -> list[dict]:
     """Propriedades de todas as previsões disponíveis (cache de 5 min)."""
     global _cache
-    if not forcar and _cache[1] and time.monotonic() - _cache[0] < CATALOGO_CACHE_S:
+    if not forcar and _cache[1] and cache.ainda_vale(_cache[0], CATALOGO_CACHE_S):
         return _cache[1]
     dados = await _wfs(propertyName='validade,rodada,origem,resolucao_km,tipo',
                        count='10000', sortBy='validade D')
@@ -164,22 +166,18 @@ def limites(lista: list[dict]) -> list[list[float]] | None:
 # Textos do painel
 # ---------------------------------------------------------------------------
 
-def _data(texto: str) -> datetime:
-    return datetime.fromisoformat(texto).astimezone(UTC)     # Python 3.11+ aceita o 'Z'
-
-
 def rotulo(texto: str) -> str:
-    """'2026-11-13T06:00:00Z' -> '13/11 06:00Z'."""
-    try:
-        return f'{_data(texto):%d/%m %H:%MZ}'
-    except ValueError:
-        return texto
+    """'2026-11-13T06:00:00Z' -> '13/11 06:00Z' (ilegível: o texto como veio)."""
+    quando = datas.ler_iso(texto)
+    return f'{quando:%d/%m %H:%MZ}' if quando else texto
 
 
 def situacao(validade: str, referencia: datetime | None = None) -> tuple[str, str]:
     """(texto, cor) como no original: expirada, próxima (< 6 h) ou válida."""
-    referencia = referencia or datetime.now(UTC)
-    horas = (_data(validade) - referencia).total_seconds() / 3600
+    quando = datas.ler_iso(validade)
+    if quando is None:
+        return 'validade ilegível', 'warning'
+    horas = (quando - (referencia or datetime.now(UTC))).total_seconds() / 3600
     if horas < 0:
         return 'expirada', 'negative'
     if horas < 6:

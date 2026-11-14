@@ -55,3 +55,16 @@ def test_arquivos_reais_tem_todos_os_niveis():
         return  # pasta de dados ausente nesta máquina
     for fl in config.VENTO_FL_PARA_PA:
         assert vento.horarios_disponiveis(arquivos, fl), f'FL{fl} sem arquivo'
+
+
+def test_valor_no_ponto():
+    cabecalho = {'lo1': 300.0, 'la1': 0.0, 'dx': 1.0, 'dy': 1.0, 'nx': 3, 'ny': 3}
+    u = {'header': cabecalho, 'data': [0.0] * 9}
+    v = {'header': cabecalho, 'data': [0.0] * 9}
+    u['data'][4], v['data'][4] = 10.0, 0.0           # (lat -1, lon -59): vento de oeste, 10 m/s
+    assert vento.valor_no_ponto([u, v], -1, -59) == (270, 19)
+    v['data'][4], u['data'][4] = -10.0, 0.0          # vem do norte
+    assert vento.valor_no_ponto([u, v], -1, -59) == (360, 19)
+    assert vento.valor_no_ponto([u, v], -20, -59) is None                     # fora da grade
+    assert [vento.fl_da_pressao(p) for p in (25000, 50000, 85000)] == [340, 180, 50]   # como no painel
+    assert vento.fl_da_pressao(12500) == 475                                       # fora da tabela: padrão

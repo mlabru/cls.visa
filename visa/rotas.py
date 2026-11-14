@@ -87,7 +87,7 @@ async def buscar(indicativo: str, hoje: date | None = None) -> Rota | None:
     if not INDICATIVO.fullmatch(indicativo):
         raise ValueError(f'indicativo inválido: {indicativo!r}')
     guardado = _cache.get(indicativo)
-    if guardado and time.monotonic() - guardado[0] < CACHE_S:
+    if guardado and cache.ainda_vale(guardado[0], CACHE_S):
         return guardado[1]
     hoje = hoje or datetime.now(UTC).date()
     rota = await _consultar(indicativo, hoje) or await _consultar(indicativo, hoje - timedelta(days=1))

@@ -201,6 +201,25 @@ def validade(caminho: Path) -> tuple[str | None, str | None]:
     return _cache[caminho][2]
 
 
+def texto_fonte(caminho: Path | None, hoje: str) -> tuple[str, bool]:
+    """(texto da fonte para o painel, está velho?). `hoje` = 'AAAA-MM-DD' (UTC).
+
+    Com data AIRAC no arquivo, vale a próxima emenda; sem ela, a idade do arquivo.
+    """
+    if caminho is None:
+        return 'fonte: imagens do DECEA', False
+    emenda, proxima = validade(caminho)
+    if proxima:
+        fim = f'{proxima[8:10]}/{proxima[5:7]}'
+        if hoje >= proxima:
+            return f'fonte: arquivo local, AIRAC de {emenda[8:10]}/{emenda[5:7]} · VENCIDO em {fim}, baixe de novo', True
+        return f'fonte: arquivo local, AIRAC de {emenda[8:10]}/{emenda[5:7]}, válido até {fim}', False
+    dias = idade_dias(caminho)
+    if dias > CICLO_AIRAC_DIAS:
+        return f'fonte: arquivo local, há {dias:.0f} dias · ciclo AIRAC vencido?', True
+    return f'fonte: arquivo local, há {dias:.0f} dias', False
+
+
 _cache: dict[Path, tuple[float, bytes, tuple]] = {}
 
 

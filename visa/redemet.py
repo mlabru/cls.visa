@@ -26,7 +26,7 @@ import math
 import re
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from urllib.parse import urlencode
 
 import httpx
@@ -35,6 +35,8 @@ from PIL import Image
 
 import cache
 import config
+import datas
+import geo
 import radar
 
 log = logging.getLogger(__name__)
@@ -99,13 +101,8 @@ _pngs: dict[str, bytes] = {}
 # ---------------------------------------------------------------------------
 
 def _data(texto: str | None) -> datetime | None:
-    """'2026-11-13 16:08:07' (UTC) -> datetime."""
-    if not texto:
-        return None
-    try:
-        return datetime.strptime(texto[:19], '%Y-%m-%d %H:%M:%S').replace(tzinfo=UTC)
-    except ValueError:
-        return None
+    """'2026-11-13 16:08:07' (UTC) -> datetime. Só os 19 primeiros caracteres valem."""
+    return datas.ler_iso((texto or '')[:19])
 
 
 def _relativo(url: str | None) -> str | None:
@@ -119,13 +116,10 @@ def caminho_valido(caminho: str) -> bool:
     return bool(CAMINHO.match(caminho)) and '..' not in caminho
 
 
-def converter_radar(dados: dict) -> list[Imagem]:
-    """Resposta de /produtos/radar/<tipo> -> uma Imagem por estação (a mais recente)."""
-    quadros = dados.get('radar') or []
-    if not quadros:
-        return []
+def _imagens_estacoes(estacoes: list[dict]) -> list[Imagem]:
+    """Um quadro da resposta do radar -> uma Imagem por estação (as ilegíveis ficam de fora)."""
     lista = []
-    for r in quadros[-1]:            # com anima=N vêm N quadros; o último é o mais novo
+    for r in estacoes:
         caminho = _relativo(r.get('path'))
         try:
             lista.append(Imagem(caminho or '', float(r['lat_min']), float(r['lat_max']),
@@ -134,6 +128,12 @@ def converter_radar(dados: dict) -> list[Imagem]:
         except (KeyError, TypeError, ValueError):
             continue
     return lista
+
+
+def converter_radar(dados: dict) -> list[Imagem]:
+    """Resposta de /produtos/radar/<tipo> -> uma Imagem por estação (a mais recente)."""
+    quadros = dados.get('radar') or []
+    return _imagens_estacoes(quadros[-1]) if quadros else []   # com anima=N: o último é o mais novo
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,7 +151,7 @@ def converter_radar_quadros(dados: dict) -> list[QuadroRadar]:
     """
     quadros, vistos = [], set()
     for estacoes in dados.get('radar') or []:
-        imagens = converter_radar({'radar': [estacoes]})
+        imagens = _imagens_estacoes(estacoes)
         horarios = [i.quando for i in imagens if i.caminho and i.quando]
         if not horarios:
             continue
@@ -171,7 +171,7 @@ def converter_satelite_quadros(dados: dict) -> list[Imagem]:
     area = dados.get('lat_lon') or {}
     lista = []
     for item in dados.get('satelite') or []:
-        imagem = converter_satelite({'lat_lon': area, 'satelite': [item]})
+        imagem = _imagem_satelite(area, item)
         if imagem and imagem.quando:
             lista.append(imagem)
     return sorted(lista, key=lambda i: i.quando)
@@ -179,22 +179,20 @@ def converter_satelite_quadros(dados: dict) -> list[Imagem]:
 
 def converter_satelite(dados: dict) -> Imagem | None:
     """Resposta de /produtos/satelite/<tipo> -> a imagem mais recente."""
-    area, imagens = dados.get('lat_lon') or {}, dados.get('satelite') or []
-    if not imagens:
-        return None
-    ultima = imagens[-1]
-    caminho = _relativo(ultima.get('path'))
+    imagens = dados.get('satelite') or []
+    return _imagem_satelite(dados.get('lat_lon') or {}, imagens[-1]) if imagens else None
+
+
+def _imagem_satelite(area: dict, item: dict) -> Imagem | None:
+    """Um horário da resposta do satélite -> Imagem (None se ilegível). A área é a mesma em todos."""
+    caminho = _relativo(item.get('path'))
     if not caminho:
         return None
     try:
         return Imagem(caminho, float(area['lat_min']), float(area['lat_max']),
-                      float(area['lon_min']), float(area['lon_max']), _data(ultima.get('data')))
+                      float(area['lon_min']), float(area['lon_max']), _data(item.get('data')))
     except (KeyError, TypeError, ValueError):
         return None
-
-
-def _mercator_y(lat: float) -> float:
-    return math.log(math.tan(math.pi / 4 + math.radians(lat) / 2))
 
 
 def reprojetar(img: np.ndarray, sul: float, norte: float) -> np.ndarray:
@@ -205,7 +203,7 @@ def reprojetar(img: np.ndarray, sul: float, norte: float) -> np.ndarray:
     então o filtro de dBZ continua reconhecendo as cores).
     """
     altura = img.shape[0]
-    y = np.linspace(_mercator_y(norte), _mercator_y(sul), altura)
+    y = np.linspace(geo.mercator_y(norte), geo.mercator_y(sul), altura)
     lat = np.degrees(2 * np.arctan(np.exp(y)) - np.pi / 2)
     origem = np.clip(np.round((norte - lat) / (norte - sul) * (altura - 1)).astype(int), 0, altura - 1)
     return img[origem]
@@ -218,7 +216,7 @@ def reprojetar(img: np.ndarray, sul: float, norte: float) -> np.ndarray:
 async def _consultar(caminho: str, validade_s: float, **parametros) -> dict:
     chave = (caminho, tuple(sorted(parametros.items())))
     guardado = _cache_api.get(chave)
-    if guardado and time.monotonic() - guardado[0] < validade_s:
+    if guardado and cache.ainda_vale(guardado[0], validade_s):
         return guardado[1]
     try:
         resposta = await _cliente.get(f'{config.REDEMET_PRODUTOS_URL}/{caminho}',
@@ -297,6 +295,7 @@ class QuadroRaios:
         return f'/redemet/raios?q={self.chave}'
 
 
+QUADROS_RAIOS_GUARDADOS = 200    # ~20 h de quadros (um a cada 6–7 min): sobra para a animação de 3 h
 _quadros_raios: dict[str, QuadroRaios] = {}      # chave -> quadro (para a rota desenhar a imagem)
 
 
@@ -354,8 +353,8 @@ def desenhar_raios(quadro: QuadroRaios) -> bytes:
     """Imagem PNG (já em Mercator) com um quadrado colorido por célula; o resto transparente."""
     largura = round((RAIOS_LESTE - RAIOS_OESTE) / CELULA_GRAUS * RAIOS_PX_POR_CELULA)
     px_por_unidade = largura / math.radians(RAIOS_LESTE - RAIOS_OESTE)
-    y_norte = _mercator_y(RAIOS_NORTE)
-    altura = round((y_norte - _mercator_y(RAIOS_SUL)) * px_por_unidade)
+    y_norte = geo.mercator_y(RAIOS_NORTE)
+    altura = round((y_norte - geo.mercator_y(RAIOS_SUL)) * px_por_unidade)
     img = np.zeros((altura, largura), np.uint8)              # 0 = transparente
     meia = CELULA_GRAUS / 2
     for la, lo, minutos in quadro.celulas:
@@ -363,8 +362,8 @@ def desenhar_raios(quadro: QuadroRaios) -> bytes:
             continue
         x0 = round((lo - meia - RAIOS_OESTE) / CELULA_GRAUS * RAIOS_PX_POR_CELULA)
         x1 = round((lo + meia - RAIOS_OESTE) / CELULA_GRAUS * RAIOS_PX_POR_CELULA)
-        y0 = round((y_norte - _mercator_y(la + meia)) * px_por_unidade)
-        y1 = round((y_norte - _mercator_y(la - meia)) * px_por_unidade)
+        y0 = round((y_norte - geo.mercator_y(la + meia)) * px_por_unidade)
+        y1 = round((y_norte - geo.mercator_y(la - meia)) * px_por_unidade)
         img[y0:max(y1, y0 + 1), x0:max(x1, x0 + 1)] = classe_raio(minutos) + 1
     paleta = [0, 0, 0] + [int(c[i:i + 2], 16) for _, c, _ in RAIOS_CLASSES for i in (1, 3, 5)]
     imagem = Image.fromarray(img)                 # array 2D uint8: modo L; putpalette o torna P
@@ -376,10 +375,8 @@ def desenhar_raios(quadro: QuadroRaios) -> bytes:
 
 async def raios_quadros() -> list[QuadroRaios]:
     quadros = converter_raios(await _consultar('stsc', RADAR_CACHE_S, anima=RAIOS_QUADROS_MAX))
-    for quadro in quadros:
-        _quadros_raios[quadro.chave] = quadro
-    while len(_quadros_raios) > 200:                    # guarda as últimas ~10 h
-        _quadros_raios.pop(min(_quadros_raios))         # chave AAAAMMDDTHHMM: a menor é a mais velha
+    for quadro in quadros:                              # chegam em ordem de tempo: o FIFO descarta o mais velho
+        cache.guardar(_quadros_raios, quadro.chave, quadro, QUADROS_RAIOS_GUARDADOS)
     return quadros
 
 

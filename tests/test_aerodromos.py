@@ -119,6 +119,11 @@ def test_validade_airac(tmp_path):
     assert espaco.validade(caminho) == ('2026-10-29', '2026-11-26')
     props = json.loads(espaco.geojson_preparado(caminho))['features'][0]['properties']
     assert props['_titulo'].startswith('UM402')
+    assert espaco.texto_fonte(caminho, '2026-11-20') == \
+        ('fonte: arquivo local, AIRAC de 29/10, válido até 26/11', False)
+    assert espaco.texto_fonte(caminho, '2026-11-26') == \
+        ('fonte: arquivo local, AIRAC de 29/10 · VENCIDO em 26/11, baixe de novo', True)
+    assert espaco.texto_fonte(None, '2026-11-20') == ('fonte: imagens do DECEA', False)
 
 
 # Itens reais do WFS do DECEA (AIRAC 2026-10-29)

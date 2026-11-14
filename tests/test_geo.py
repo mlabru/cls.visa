@@ -27,3 +27,13 @@ def test_limites_e_arredondar():
     assert geo.limites([[-15, -47], [-20, -40]]) == [[-20, -47], [-15, -40]]
     assert geo.limites([]) is None
     assert geo.arredondar([[1.234567, [2.345678]]], 2) == [[1.23, [2.35]]]
+
+
+def test_grade_de_0_1_grau():
+    chave = geo.chave_celula(-23.45, -46.47)
+    assert chave == (-235, -465)
+    lat, lon = geo.centro(chave)
+    assert round(lat, 2) == -23.45 and round(lon, 2) == -46.45
+    vizinhas = geo.vizinhas(chave)
+    assert len(vizinhas) == 9 and chave in vizinhas and (-234, -464) in vizinhas
+    assert abs(geo.mercator_y(0)) < 1e-12 and abs(geo.mercator_y(-30) + geo.mercator_y(30)) < 1e-12

@@ -89,6 +89,35 @@ def deslocar(lat: float, lon: float, rumo: float, km):
     return lat + dlat, lon + dlon
 
 
+# ---------------------------------------------------------------------------
+# Grade de 0,1° (a das células de raios da REDEMET): impacto e previsão usam a mesma
+# ---------------------------------------------------------------------------
+
+GRADE = 0.1                     # graus
+Chave = tuple[int, int]         # (floor(lat*10), floor(lon*10))
+
+
+def chave_celula(lat: float, lon: float) -> Chave:
+    """Célula de 0,1° que contém o ponto."""
+    return math.floor(lat * 10), math.floor(lon * 10)
+
+
+def centro(chave: Chave) -> tuple[float, float]:
+    """Centro (lat, lon) da célula."""
+    return (chave[0] + 0.5) * GRADE, (chave[1] + 0.5) * GRADE
+
+
+def vizinhas(chave: Chave) -> list[Chave]:
+    """A célula e as 8 em volta (inclusive na diagonal)."""
+    i, j = chave
+    return [(i + di, j + dj) for di in (-1, 0, 1) for dj in (-1, 0, 1)]
+
+
+def mercator_y(lat: float) -> float:
+    """Coordenada vertical da projeção de Mercator (a do mapa), em radianos."""
+    return math.log(math.tan(math.pi / 4 + math.radians(lat) / 2))
+
+
 def limites(pontos: list[list[float]]) -> list[list[float]] | None:
     """[[sul, oeste], [norte, leste]] de uma lista de pontos [lat, lon] (formato do Leaflet)."""
     if not pontos:
