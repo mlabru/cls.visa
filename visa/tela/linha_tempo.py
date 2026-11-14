@@ -2,7 +2,7 @@
 LinhaDoTempo: a barra embaixo do mapa que controla a animação de satélite, radar e raios.
 
 Só os controles. Quem prepara as imagens e troca os quadros é a CamadaAnimacao
-(camadas.py); ela avisa esta barra pelo `ao_mudar` a cada passo.
+(camadas/animacao_mapa.py); ela avisa esta barra pelo `ao_mudar` a cada passo.
 """
 from nicegui import ui
 

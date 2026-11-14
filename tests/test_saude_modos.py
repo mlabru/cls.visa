@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 import modos
 import saude
-from interface import PADRAO
+from preferencias import PADRAO
 
 AGORA = datetime(2026, 11, 13, 15, 0, tzinfo=UTC)
 

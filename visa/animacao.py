@@ -5,7 +5,7 @@ O satélite tem imagem a cada 10 min; o radar, a cada 20 min; os raios, a cada 6
 A linha do tempo anda de 10 em 10 min e, em cada passo, mostra o quadro mais recente de
 cada um que já existia naquele horário (o radar repete o quadro quando não há um novo).
 
-Funções puras: quem baixa as imagens e mexe no mapa é a CamadaAnimacao (camadas.py).
+Funções puras: quem baixa as imagens e mexe no mapa é a CamadaAnimacao (camadas/animacao_mapa.py).
 """
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta

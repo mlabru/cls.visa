@@ -6,7 +6,7 @@ import animacao
 import camadas
 import config
 import redemet
-from interface import PADRAO
+from preferencias import PADRAO
 
 E = config.REDEMET_ESTATICO_URL
 T0 = datetime(2026, 11, 13, 14, 0, tzinfo=UTC)
