@@ -40,7 +40,7 @@ class BarraSaude:
         if p['radar_ligado']:
             ultimas = [c.radar.ultimas[r] for r in p['radares'] if r in c.radar.ultimas]
             erro = c.radar.erro_api if c.radar.pela_api() else ''
-            lista.append(saude.radar(ultimas, c.radar.status_ok, agora, erro))
+            lista.append(saude.radar(ultimas, c.radar.status_ok, erro, agora))
         if p['raios_ligado'] and c.raios.pela_api():
             quadro = c.raios.quadro
             lista.append(saude.raios_api(quadro.quando if quadro else None, c.raios.erro_api, agora))

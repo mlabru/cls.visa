@@ -1,7 +1,7 @@
 """
 Camadas do mapa: cada classe liga, desliga e atualiza uma camada do Leaflet.
 
-Não monta painel nenhum: a interface (interface.py) cria os controles e chama estes métodos.
+Não monta painel nenhum: o pacote `tela/` (painel_camadas.py) cria os controles e chama estes métodos.
 
 Padrões que se repetem nas classes (explicados em DECISOES.md):
   aplicar()      recria a camada a partir das preferências (liga, desliga, troca de fonte);
@@ -9,7 +9,7 @@ Padrões que se repetem nas classes (explicados em DECISOES.md):
   _pedido        número do último pedido à rede: resposta de um pedido velho é ignorada;
   congelada      True durante a animação: a camada ao vivo não troca de imagem;
   self.prefs     é o MESMO dicionário de preferências da interface (não uma cópia).
-Os atributos de tela (ui.label etc.) começam como None e são preenchidos pela interface.
+Os atributos de tela (ui.label etc.) começam como None e são preenchidos por tela/painel_camadas.py.
 """
 import logging
 from datetime import UTC, datetime
@@ -57,7 +57,7 @@ class CamadaRadar:
         self._circulos_desenhados: list = []      # o que está no mapa (evita redesenhar igual)
         self.ultimas: dict[str, datetime] = {}   # código -> horário da última imagem
         self.status_ok = False                    # o GeoServer respondeu à consulta de status?
-        self.ao_mudar_status = lambda: None       # a interface repinta os botões
+        self.ao_mudar_status = lambda: None       # o painel (tela/) repinta os botões
 
     def pela_api(self) -> bool:
         return self.prefs['radar_fonte'] == 'api'
@@ -190,7 +190,7 @@ class CamadaRadar:
                 if r.codigo not in p['radares']:
                     continue
                 quando = self.ultimas.get(r.codigo)
-                recente = bool(quando and (agora - quando).total_seconds() <= 3 * 3600)
+                recente = bool(quando and (agora - quando).total_seconds() <= config.RADAR_VERMELHO_ATE_MIN * 60)
                 if quando:
                     linha = (f'Última imagem: {quando:%d/%m %H:%MZ}', '#059669' if recente else '#ef4444')
                 else:
@@ -219,7 +219,7 @@ class CamadaSatelite:
         self.camada = None
         self.imagem: redemet.Imagem | None = None
         self.erro = ''
-        self.info: ui.label | None = None         # preenchido pela interface
+        self.info: ui.label | None = None         # preenchido por tela/painel_camadas.py
         self.congelada = False                    # durante a animação, não troca a imagem
         self._pedido = 0
 
@@ -293,7 +293,7 @@ class CamadaAnimacao:
         self.aviso = ''
         self.camadas: dict[str, object] = {}      # url -> camada (invisível até ser a vez dela)
         self.visiveis: dict[str, float] = {}      # url -> opacidade, as que estão na tela
-        self.ao_mudar = lambda: None              # a interface atualiza os controles
+        self.ao_mudar = lambda: None              # a linha do tempo (tela/) atualiza os controles
         self._assinatura: tuple = ()
         self._pausa = 0
 
@@ -493,7 +493,7 @@ class CamadaRaios:
     def __init__(self, mapa: ui.leaflet, prefs: dict) -> None:
         self.mapa, self.prefs, self.camada = mapa, prefs, None
         self.fim: datetime | None = None          # None = ao vivo (GeoServer)
-        self.janela: ui.label | None = None       # preenchido pela interface
+        self.janela: ui.label | None = None       # preenchido por tela/painel_camadas.py
         self.imagem_api = None                    # camada da imagem (API)
         self.quadro: redemet.QuadroRaios | None = None
         self.erro_api = ''
@@ -583,7 +583,7 @@ class CamadaRotas:
     def __init__(self, mapa: ui.leaflet) -> None:
         self.mapa = mapa
         self.camadas: dict[str, list] = {}         # indicativo -> linhas (L.polyline) no mapa
-        self.lista: ui.label | None = None        # preenchidos pela interface
+        self.lista: ui.label | None = None        # preenchidos por tela/painel_camadas.py
         self.botao_limpar: ui.button | None = None
 
     async def alternar(self, indicativo: str) -> None:
@@ -652,8 +652,8 @@ class CamadaSevero:
         self.tipo = 'area'
         self.erro = ''                                   # última falha do GeoServer (barra de saúde)
         self.cat: list[dict] = []
-        self.escolha = dict.fromkeys(self.NIVEIS)        # valores atuais (a interface se liga aqui)
-        self.selects: dict[str, ui.select] = {}          # preenchidos pela interface
+        self.escolha = dict.fromkeys(self.NIVEIS)        # valores atuais (o painel se liga aqui)
+        self.selects: dict[str, ui.select] = {}          # preenchidos por tela/painel_camadas.py
         self.situacao: ui.label | None = None
         self._pedido = 0
 
@@ -789,7 +789,7 @@ class CamadaVento:
     def __init__(self, mapa: ui.leaflet, prefs: dict) -> None:
         self.mapa, self.prefs, self.camada = mapa, prefs, None
         self.referencia: datetime | None = None
-        self.aviso: ui.label | None = None       # preenchidos pela interface
+        self.aviso: ui.label | None = None       # preenchidos por tela/painel_camadas.py
         self.horarios: ui.select | None = None
         if prefs['vento_horario'] not in self.opcoes_horario():
             prefs['vento_horario'] = 'recente'
@@ -888,11 +888,8 @@ class CamadaConflitos:
 
     Segue o filtro da camada de tráfego (ligada, prefixos, faixa de níveis): linha de uma
     aeronave escondida confundiria. A linha começa na posição ATUAL da aeronave (redesenho a
-    cada REDESENHO_S), não na do cálculo, que tem até 1 min.
+    cada previsao.REDESENHO_S), não na do cálculo, que tem até 1 min.
     """
-
-    REDESENHO_S = 15
-    MAX = 30
 
     def __init__(self, mapa: ui.leaflet, camada_aeronaves: CamadaAeronaves) -> None:
         self.mapa, self.aeronaves = mapa, camada_aeronaves
@@ -908,7 +905,7 @@ class CamadaConflitos:
         faixa = p['aeronaves_fl']
         visiveis = {a['indicativo'] for a in aeronaves.filtrar(self.aeronaves.prefixos(), faixa['min'], faixa['max'])}
         with self.mapa:
-            for c in [c for c in previsao.situacao.conflitos if c.indicativo in visiveis][:self.MAX]:
+            for c in [c for c in previsao.situacao.conflitos if c.indicativo in visiveis][:previsao.MAX_CONFLITOS]:
                 agora = aeronaves.trafego.aeronaves.get(c.chave)
                 inicio = [agora.lat, agora.lon] if agora else [c.lat0, c.lon0]
                 cor = previsao.COR_CONFIANCA[c.confianca]
@@ -930,7 +927,7 @@ class CamadasEspaco:
         self.mapa, self.prefs = mapa, prefs
         self.camadas: dict[str, object] = {}
         self.vetorial: set[str] = set()          # chaves desenhadas a partir de arquivo local
-        self.fontes: dict[str, ui.label] = {}    # preenchido pela interface
+        self.fontes: dict[str, ui.label] = {}    # preenchido por tela/painel_camadas.py
 
     def estilo_vetor(self, chave: str) -> dict:
         definicao = espaco.POR_CHAVE[chave]
@@ -1021,13 +1018,12 @@ class CamadaAerodromos:
 class CamadasDaPagina:
     """As camadas de UMA página (uma aba do navegador), criadas juntas.
 
-    Existe para que cada área da tela (pacote `tela/`) receba um objeto só, e não onze
-    parâmetros. Cada aba aberta tem o seu conjunto: as preferências e o que está no mapa
+    Existe para que cada área da tela (pacote `tela/`) receba um objeto só, e não um
+    parâmetro por camada. Cada aba aberta tem o seu conjunto: as preferências e o que está no mapa
     são de cada pessoa. O que é comum a todos (aeronaves, impacto, caches) fica nos módulos.
     """
 
     def __init__(self, mapa: ui.leaflet, prefs: dict) -> None:
-        self.mapa, self.prefs = mapa, prefs
         self.satelite = CamadaSatelite(mapa, prefs)
         self.radar = CamadaRadar(mapa, prefs)
         self.vento = CamadaVento(mapa, prefs)
@@ -1063,13 +1059,13 @@ class CamadasDaPagina:
     def ligar_relogios(self) -> None:
         """Atualizações periódicas de cada camada (os intervalos estão em config.py e nos módulos)."""
         ui.timer(config.AERONAVE_ENVIO_S, self.aeronaves.enviar)
-        ui.timer(CamadaConflitos.REDESENHO_S, self.conflitos.desenhar)
+        ui.timer(previsao.REDESENHO_S, self.conflitos.desenhar)
         ui.timer(config.RADAR_ATUALIZA_S, self.radar.atualizar_horario)
         ui.timer(config.RADAR_ATUALIZA_S, self.raios.no_relogio)
         ui.timer(config.RADAR_ATUALIZA_S, self.radar.consultar_status)
-        ui.timer(600, self.wifs.recarregar)
+        ui.timer(wifs.RECARREGA_S, self.wifs.recarregar)
         ui.timer(config.SATELITE_ATUALIZA_S, self.satelite.atualizar)
         ui.timer(severo.CATALOGO_CACHE_S, lambda: self.severo.carregar_catalogo(forcar=True))
-        ui.timer(60, self.vento.mostrar_idade)
+        ui.timer(vento.IDADE_ATUALIZA_S, self.vento.mostrar_idade)
         ui.timer(config.AERODROMOS_ATUALIZA_S, self.aerodromos.enviar)
         ui.timer(animacao.INTERVALO_S, self.animacao.tique)

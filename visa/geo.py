@@ -89,13 +89,6 @@ def deslocar(lat: float, lon: float, rumo: float, km):
     return lat + dlat, lon + dlon
 
 
-def distancias_km(lat: float, lon: float, lats: np.ndarray, lons: np.ndarray) -> np.ndarray:
-    """Distância (plano local) do ponto a muitos pontos de uma vez; mesma precisão de `deslocar`."""
-    dy = (np.asarray(lats) - lat) * KM_POR_GRAU
-    dx = (np.asarray(lons) - lon) * KM_POR_GRAU * max(math.cos(math.radians(lat)), 0.01)
-    return np.hypot(dx, dy)
-
-
 def limites(pontos: list[list[float]]) -> list[list[float]] | None:
     """[[sul, oeste], [norte, leste]] de uma lista de pontos [lat, lon] (formato do Leaflet)."""
     if not pontos:

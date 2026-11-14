@@ -95,7 +95,7 @@ def test_feicoes_paginadas_e_limites(monkeypatch):
         return httpx.Response(200, json={'features': lote, 'numberMatched': 3})
 
     monkeypatch.setattr(severo, '_cliente', httpx.AsyncClient(transport=httpx.MockTransport(wfs)))
-    monkeypatch.setattr(severo.radar, '_indisponivel_ate', 0.0)
+    monkeypatch.setattr(severo.radar.estado, 'indisponivel_ate', 0.0)
     lista = asyncio.run(severo.feicoes("tipo='area'"))
     assert len(lista) == 2 and len(pedidos) == 1
     assert pedidos[0]['CQL_FILTER'] == "tipo='area'" and pedidos[0]['typeName'] == 'redemet:tempo_severo'
@@ -105,7 +105,7 @@ def test_feicoes_paginadas_e_limites(monkeypatch):
 
 
 def test_geoserver_fora_nao_consulta(monkeypatch):
-    monkeypatch.setattr(severo.radar, '_indisponivel_ate', float('inf'))
+    monkeypatch.setattr(severo.radar.estado, 'indisponivel_ate', float('inf'))
     with pytest.raises(severo.Indisponivel):
         asyncio.run(severo.catalogo(forcar=True))
 
@@ -163,7 +163,7 @@ def test_mensagem_do_severo_vem_pronta(monkeypatch):
     # A tela mostrava "GeoServer inacessível (GeoServer inacessível)"
     transporte = httpx.MockTransport(lambda pedido: httpx.Response(500))
     monkeypatch.setattr(severo, '_cliente', httpx.AsyncClient(transport=transporte))
-    monkeypatch.setattr(severo.radar, '_indisponivel_ate', 0.0)
+    monkeypatch.setattr(severo.radar.estado, 'indisponivel_ate', 0.0)
     with pytest.raises(severo.Indisponivel, match=r'^GeoServer inacessível \(HTTPStatusError\)$'):
         asyncio.run(severo.catalogo(forcar=True))
 

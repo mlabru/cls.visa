@@ -7,7 +7,6 @@ Trajetória percorrida por um voo, vinda do ciop-tracker do DECEA.
 
 O servidor Python consulta (a apikey fica aqui) e manda ao mapa só as linhas, já reduzidas.
 """
-import logging
 import re
 import time
 from dataclasses import dataclass, field
@@ -17,8 +16,6 @@ import httpx
 
 import cache
 import config
-
-log = logging.getLogger('rotas')
 
 INDICATIVO = re.compile(r'[A-Z0-9]{2,10}')   # vai no caminho da URL: nada além disso
 DISTANCIA_MIN_GRAUS = 0.01                  # ~1 km: pontos mais próximos que isso são descartados

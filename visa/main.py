@@ -1,7 +1,8 @@
 """
 CLS Visa — visualizador meteorológico para quem acompanha o tráfego aéreo.
 
-Para rodar:   .venv/bin/python main.py      e abra  http://localhost:8090
+Para rodar (da raiz do projeto):   ./visa.sh rodar   (ou .venv/bin/python visa/main.py)
+e abra  http://localhost:8090
 
 Este arquivo só liga as peças: as rotas HTTP que o navegador chama diretamente (imagens
 e GeoJSON, que não passam pelo websocket do NiceGUI), as tarefas de fundo do servidor e

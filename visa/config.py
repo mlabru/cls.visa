@@ -41,6 +41,9 @@ GEOSERVER_WMS = _obrigatorio('VISA_GEOSERVER_WMS')  # ex.: http://10.228.12.167:
 RADAR_JANELA_MIN = 180          # janela de tempo (minutos) pedida ao WMS
 RADAR_ATUALIZA_S = 120          # recarrega as imagens a cada 2 min
 RADAR_TIMEOUT_S = 20
+# Idade da última imagem de cada radar (min): verde, amarelo, vermelho; acima disso, cinza.
+# Os mesmos limites valem para os botões, os círculos de alcance e a barra de saúde.
+RADAR_VERDE_ATE_MIN, RADAR_AMARELO_ATE_MIN, RADAR_VERMELHO_ATE_MIN = 30, 60, 180
 # WFS do mesmo GeoServer (tempo severo). Padrão: o endereço do WMS terminando em /wfs
 GEOSERVER_WFS = os.environ.get('VISA_GEOSERVER_WFS', GEOSERVER_WMS.removesuffix('wms') + 'wfs')
 
@@ -67,6 +70,7 @@ TRACKER_TOKEN = _obrigatorio('VISA_TRACKER_TOKEN')          # Bearer
 _auth = urlsplit(TRACKER_AUTH_URL)
 TRACKER_BASE = f'{_auth.scheme}://{_auth.netloc}/ciop-tracker'
 TRACKER_APIKEY = (parse_qs(_auth.query).get('apikey') or [''])[0]
+del _auth                       # só servia para as duas contas acima
 AERONAVE_EXPIRA_S = 300         # some do mapa se não for vista por 5 min
 AERONAVE_ENVIO_S = 2.0          # de quanto em quanto tempo cada navegador recebe as posições
 

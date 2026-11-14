@@ -53,6 +53,8 @@ INTERVALO_MIN, INTERVALO_MAX = 10, 40   # minutos entre o quadro atual e o anter
 NUCLEO_VELHO_MIN = 25          # quadro mais velho que isso: a confiança cai um nível
 NUCLEO_DESCARTE_MIN = 60       # quadro mais velho que isso: núcleo ignorado
 TOLERANCIA_MIN = 10            # o alerta "vence" este tempo depois do encontro previsto
+MAX_CONFLITOS = 30             # na tela: no painel FAB.ia e no mapa (os mais próximos no tempo)
+REDESENHO_S = 15               # na tela: painel FAB.ia, contador do cabeçalho e linhas do mapa
 
 RADAR, RAIOS = 'radar', 'raios'
 ALTA, MEDIA, BAIXA = 'alta', 'media', 'baixa'
@@ -374,7 +376,6 @@ class Situacao:
     verificador: Verificador = field(default_factory=Verificador)
     placar: Counter = field(default_factory=Counter)        # desde que o servidor subiu
     desde: datetime = field(default_factory=lambda: datetime.now(UTC))
-    versao: int = 0
 
 
 situacao = Situacao()
@@ -404,7 +405,6 @@ def ciclo(agora: datetime, elegiveis: list, em_perigo: set[str]) -> None:
     registrar(eventos)
     situacao.placar.update(e['tipo'] for e in eventos)
     situacao.conflitos, situacao.calculado = conflitos, agora
-    situacao.versao += 1
 
 
 # ---------------------------------------------------------------------------

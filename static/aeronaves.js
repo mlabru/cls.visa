@@ -1,5 +1,5 @@
 /*
- * Camada de aeronaves desenhada em <canvas> — o único JavaScript próprio do sistema.
+ * Camada de aeronaves desenhada em <canvas> (o outro JavaScript próprio é camadas.js).
  *
  * Não tem lógica de negócio: o Python decide QUAIS aeronaves mostrar e manda a
  * lista pronta com  setDados([{lat, lon, rumo, indicativo, fl, vel, origem, destino, fonte, alerta}, ...]).
@@ -147,7 +147,7 @@
         linha.appendChild(document.createTextNode(valor));
         div.appendChild(linha);
       }
-      // Pede a rota ao Python (evento 'rota' tratado em main.py); clicar de novo oculta
+      // Pede a rota ao Python (evento 'rota' tratado em interface.py); clicar de novo oculta
       const botao = document.createElement('button');
       botao.className = 'aeronave-botao-rota';
       botao.textContent = 'Ver / ocultar rota';

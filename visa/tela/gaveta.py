@@ -235,10 +235,8 @@ class PainelSonda:
 class PainelImpacto:
     """Lista o que impacto.situacao calculou. Redesenha a cada 15 s, só se a aba estiver aberta."""
 
-    REDESENHO_S = 15
     MAX_AERODROMOS = 30
     MAX_AERONAVES = 60
-    MAX_CONFLITOS = 30
 
     def __init__(self, gaveta: Gaveta, area: AreaDoMapa, prefs: dict,
                  camadas_: camadas.CamadasDaPagina, painel_sonda: PainelSonda) -> None:
@@ -246,7 +244,7 @@ class PainelImpacto:
         self.severo, self.sonda = camadas_.severo, painel_sonda
         with gaveta.aba_impacto:
             self.conteudo = ui.column().classes('w-full gap-1')
-        ui.timer(self.REDESENHO_S, self.desenhar)
+        ui.timer(previsao.REDESENHO_S, self.desenhar)
 
     def alternar(self) -> None:
         """Botão "FAB.ia" do cabeçalho: abre a aba (ou fecha, se já estava aberta nela)."""
@@ -337,7 +335,7 @@ class PainelImpacto:
             return
         if not s.conflitos:
             ui.label('nenhum conflito previsto').classes('legenda-texto')
-        for c in s.conflitos[:self.MAX_CONFLITOS]:
+        for c in s.conflitos[:previsao.MAX_CONFLITOS]:
             cor = previsao.COR_CONFIANCA[c.confianca]
             with ui.element('div').classes('impacto-item w-full').style(f'border-left-color: {cor}') \
                     .on('click', lambda c=c: self._ir_para_conflito(c)):

@@ -6,6 +6,8 @@ fica na seção "Vento em altitude" (partículas, a partir dos arquivos JSON).
 """
 from dataclasses import dataclass
 
+RECARREGA_S = 600   # TIME=current: a cada 10 min o mapa pede os tiles de novo (previsão vigente)
+
 
 @dataclass(frozen=True)
 class CamadaWifs:

@@ -34,12 +34,11 @@ def _nucleo(lat=0.05, lon=0.05, celulas=None, quando=T0, vn=0.0, ve=0.0, movimen
 
 # --- geometria ----------------------------------------------------------------
 
-def test_deslocar_e_distancias():
+def test_deslocar():
     lat, lon = geo.deslocar(0, 0, 0, geo.KM_POR_GRAU)          # 1 grau para o norte
     assert lat == pytest.approx(1) and lon == pytest.approx(0)
     lat, lon = geo.deslocar(0, 0, 90, geo.KM_POR_GRAU)         # 1 grau para leste
     assert lat == pytest.approx(0) and lon == pytest.approx(1)
-    assert geo.distancias_km(0, 0, [0, 1], [1, 0]) == pytest.approx([geo.KM_POR_GRAU] * 2)
 
 
 # --- núcleos -----------------------------------------------------------------

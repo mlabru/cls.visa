@@ -16,6 +16,7 @@ from pathlib import Path
 
 import config
 
+IDADE_ATUALIZA_S = 60   # o aviso de idade do arquivo no painel é refeito a cada minuto
 _PADRAO = re.compile(r'^wind_(\d{8}T\d{6}Z)_(\d+)\.json$')
 
 

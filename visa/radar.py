@@ -202,25 +202,20 @@ def cor_dbz(dbz: float | None) -> str:
 # Proxy do WMS
 # ---------------------------------------------------------------------------
 
-@dataclass
-class EstadoGeoServer:
-    ok: bool | None = None          # None = ainda não testado
-    mensagem: str = 'aguardando o primeiro pedido'
-    quando: datetime | None = None
-
-
-estado = EstadoGeoServer()
-_cliente = httpx.AsyncClient(timeout=httpx.Timeout(config.RADAR_TIMEOUT_S, connect=5))
-
 # Se o GeoServer não responde, cada tile prenderia uma conexão do navegador por 5 s e
 # travaria os outros pedidos (o navegador só abre 6 conexões por servidor). Depois de uma
 # falha de conexão, respondemos "indisponível" na hora durante RADAR_ESPERA_FALHA_S.
 RADAR_ESPERA_FALHA_S = 30
-_indisponivel_ate = 0.0
 
 
-def _registrar(ok: bool, mensagem: str) -> None:
-    estado.ok, estado.mensagem, estado.quando = ok, mensagem, datetime.now(UTC)
+@dataclass
+class EstadoGeoServer:
+    ok: bool | None = None          # o último pedido deu certo? None = ainda não testado (barra de saúde)
+    indisponivel_ate: float = 0.0   # disjuntor: até quando (time.monotonic) responder "fora" sem tentar
+
+
+estado = EstadoGeoServer()
+_cliente = httpx.AsyncClient(timeout=httpx.Timeout(config.RADAR_TIMEOUT_S, connect=5))
 
 
 async def alcancavel(url: str = '', espera_s: float = 5) -> bool:
@@ -241,15 +236,14 @@ async def vigiar() -> None:
     Assim o "indisponível" já está valendo quando a página abre, e nenhum tile fica
     5 s preso esperando a conexão (o que atrasava as camadas de espaço aéreo).
     """
-    global _indisponivel_ate
     while True:
         if await alcancavel():
-            _indisponivel_ate = 0.0
+            estado.indisponivel_ate = 0.0
             if estado.ok is None:
-                _registrar(True, 'alcançável')
+                estado.ok = True
         else:
-            _indisponivel_ate = math.inf
-            _registrar(False, 'sem conexão (verificação automática)')
+            estado.indisponivel_ate = math.inf
+            estado.ok = False
         await asyncio.sleep(RADAR_ESPERA_FALHA_S)
 
 
@@ -271,7 +265,7 @@ def pedido_permitido(parametros: dict[str, str]) -> bool:
 
 def geoserver_fora() -> bool:
     """True enquanto o GeoServer está marcado como inacessível (disjuntor ou verificação de fundo)."""
-    return time.monotonic() < _indisponivel_ate
+    return time.monotonic() < estado.indisponivel_ate
 
 
 async def buscar_tile(parametros: dict[str, str]) -> tuple[int, bytes, str]:
@@ -279,7 +273,6 @@ async def buscar_tile(parametros: dict[str, str]) -> tuple[int, bytes, str]:
 
     Devolve (status HTTP, conteúdo, tipo).
     """
-    global _indisponivel_ate
     if not pedido_permitido(parametros):
         return 400, b'camada ou pedido nao permitido', 'text/plain'
     if geoserver_fora():
@@ -291,17 +284,17 @@ async def buscar_tile(parametros: dict[str, str]) -> tuple[int, bytes, str]:
         resposta = await _cliente.get(config.GEOSERVER_WMS, params=parametros)
     except httpx.HTTPError as erro:
         if isinstance(erro, (httpx.ConnectError, httpx.ConnectTimeout)):
-            _indisponivel_ate = time.monotonic() + RADAR_ESPERA_FALHA_S
-        _registrar(False, f'sem conexão ({type(erro).__name__})')
+            estado.indisponivel_ate = time.monotonic() + RADAR_ESPERA_FALHA_S
+        estado.ok = False
         return 502, b'GeoServer inacessivel', 'text/plain'
 
     tipo = resposta.headers.get('content-type', '')
     if resposta.status_code != 200 or not tipo.startswith('image/'):
         # O GeoServer responde erros de WMS como XML com status 200
-        _registrar(False, f'erro do WMS (HTTP {resposta.status_code})')
+        estado.ok = False
         return 502, resposta.content[:2000], 'text/plain'
 
-    _registrar(True, 'respondendo')
+    estado.ok = True
     if limiar <= 0:
         return 200, resposta.content, tipo
     # o filtro usa CPU: roda numa thread para não travar os outros usuários
@@ -347,11 +340,11 @@ def classificar_status(ultima: datetime | None, agora: datetime | None = None) -
     if ultima is None:
         return 'gray'
     minutos = ((agora or datetime.now(UTC)) - ultima).total_seconds() / 60
-    if minutos <= 30:
+    if minutos <= config.RADAR_VERDE_ATE_MIN:
         return 'green'
-    if minutos <= 60:
+    if minutos <= config.RADAR_AMARELO_ATE_MIN:
         return 'yellow'
-    if minutos <= 180:
+    if minutos <= config.RADAR_VERMELHO_ATE_MIN:
         return 'red'
     return 'gray'
 

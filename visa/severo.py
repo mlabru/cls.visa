@@ -10,7 +10,6 @@ Cada feição é uma área (polígono) ou um ponto, com as propriedades
 
 O GeoServer é interno: quem consulta é o servidor Python, nunca o navegador.
 """
-import logging
 import re
 import time
 from datetime import UTC, datetime
@@ -20,8 +19,6 @@ import httpx
 import config
 import geo
 import radar
-
-log = logging.getLogger('severo')
 
 TIPOS = {'area': 'Área', 'ponto': 'Ponto'}
 CATALOGO_CACHE_S = 300
@@ -180,7 +177,7 @@ def rotulo(texto: str) -> str:
 
 
 def situacao(validade: str, referencia: datetime | None = None) -> tuple[str, str]:
-    """(texto, cor) como no original: Expirado, Próximo (< 6 h) ou Válido."""
+    """(texto, cor) como no original: expirada, próxima (< 6 h) ou válida."""
     referencia = referencia or datetime.now(UTC)
     horas = (_data(validade) - referencia).total_seconds() / 3600
     if horas < 0:

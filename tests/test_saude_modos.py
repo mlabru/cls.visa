@@ -13,12 +13,12 @@ def test_idade_curta():
 
 
 def test_radar_usa_a_imagem_mais_nova():
-    ind = saude.radar([AGORA - timedelta(minutes=50), AGORA - timedelta(minutes=4)], True, AGORA)
+    ind = saude.radar([AGORA - timedelta(minutes=50), AGORA - timedelta(minutes=4)], True, agora=AGORA)
     assert (ind.texto, ind.nivel) == ('4 min', saude.OK)
-    assert saude.radar([AGORA - timedelta(minutes=45)], True, AGORA).nivel == saude.ATENCAO
-    assert saude.radar([AGORA - timedelta(hours=2)], True, AGORA).nivel == saude.CRITICO
-    assert saude.radar([], True, AGORA).nivel == saude.CRITICO
-    assert saude.radar([], False, AGORA).nivel == saude.SEM_DADOS
+    assert saude.radar([AGORA - timedelta(minutes=45)], True, agora=AGORA).nivel == saude.ATENCAO
+    assert saude.radar([AGORA - timedelta(hours=2)], True, agora=AGORA).nivel == saude.CRITICO
+    assert saude.radar([], True, agora=AGORA).nivel == saude.CRITICO
+    assert saude.radar([], False, agora=AGORA).nivel == saude.SEM_DADOS
 
 
 def test_raios_e_geoserver():
@@ -72,7 +72,7 @@ def test_satelite():
     assert saude.satelite(AGORA - timedelta(minutes=50), agora=AGORA).nivel == saude.ATENCAO
     assert saude.satelite(AGORA - timedelta(hours=2), agora=AGORA).nivel == saude.CRITICO
     assert saude.satelite(None, 'API da REDEMET indisponível').texto == 'fora'
-    assert saude.radar([], True, AGORA, erro='API da REDEMET indisponível').texto == 'fora'
+    assert saude.radar([], True, 'API da REDEMET indisponível', AGORA).texto == 'fora'
 
 
 def test_severo_com_rodada_ilegivel_nao_derruba_a_barra():

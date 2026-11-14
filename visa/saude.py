@@ -50,8 +50,8 @@ def _agora(agora: datetime | None) -> datetime:
 # Uma função por fonte
 # ---------------------------------------------------------------------------
 
-def radar(ultimas: list[datetime], status_ok: bool, agora: datetime | None = None,
-          erro: str = '') -> Indicador:
+def radar(ultimas: list[datetime], status_ok: bool, erro: str = '',
+          agora: datetime | None = None) -> Indicador:
     """Idade da imagem mais nova entre os radares selecionados (mesmos limites dos botões)."""
     if erro:
         return Indicador('Radar', 'fora', CRITICO, erro)
@@ -61,7 +61,7 @@ def radar(ultimas: list[datetime], status_ok: bool, agora: datetime | None = Non
         return Indicador('Radar', 'sem dados', CRITICO, 'Nenhum radar selecionado tem imagem recente')
     mais_nova = max(ultimas)
     s = (_agora(agora) - mais_nova).total_seconds()
-    return Indicador('Radar', idade_curta(s), _nivel(s, 30 * 60, 60 * 60),
+    return Indicador('Radar', idade_curta(s), _nivel(s, config.RADAR_VERDE_ATE_MIN * 60, config.RADAR_AMARELO_ATE_MIN * 60),
                      f'Imagem mais nova: {mais_nova:%d/%m %H:%MZ}')
 
 

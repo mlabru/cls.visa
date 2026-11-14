@@ -111,11 +111,11 @@ def test_falha_de_conexao_responde_rapido_depois(monkeypatch):
         raise httpx.ConnectTimeout('sem rota')
 
     monkeypatch.setattr(radar, '_cliente', httpx.AsyncClient(transport=httpx.MockTransport(geoserver_fora)))
-    monkeypatch.setattr(radar, '_indisponivel_ate', 0.0)
+    monkeypatch.setattr(radar.estado, 'indisponivel_ate', 0.0)
     assert asyncio.run(radar.buscar_tile(PEDIDO))[0] == 502
     assert asyncio.run(radar.buscar_tile(PEDIDO))[0] == 503   # não tentou de novo
     assert len(tentativas) == 1
-    monkeypatch.setattr(radar, '_indisponivel_ate', 0.0)               # passou o tempo de espera
+    monkeypatch.setattr(radar.estado, 'indisponivel_ate', 0.0)               # passou o tempo de espera
     asyncio.run(radar.buscar_tile(PEDIDO))
     assert len(tentativas) == 2
 

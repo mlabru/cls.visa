@@ -40,7 +40,7 @@ def test_busca_do_status(monkeypatch):
         ]})
 
     monkeypatch.setattr(radar, '_cliente', httpx.AsyncClient(transport=httpx.MockTransport(wfs_falso)))
-    monkeypatch.setattr(radar, '_indisponivel_ate', 0.0)
+    monkeypatch.setattr(radar.estado, 'indisponivel_ate', 0.0)
     status = asyncio.run(radar.buscar_status('maxcappi', '400km', '3'))
     assert status == {'ga': datetime(2026, 11, 13, 11, 50, tzinfo=UTC),
                       'be': datetime(2026, 11, 13, 9, 0, tzinfo=UTC)}
@@ -49,12 +49,12 @@ def test_busca_do_status(monkeypatch):
 
 
 def test_status_sem_geoserver_e_none(monkeypatch):
-    monkeypatch.setattr(radar, '_indisponivel_ate', float('inf'))
+    monkeypatch.setattr(radar.estado, 'indisponivel_ate', float('inf'))
     assert asyncio.run(radar.buscar_status('maxcappi', '400km', '3')) is None
 
     def fora(pedido):
         raise httpx.ConnectError('sem rota')
-    monkeypatch.setattr(radar, '_indisponivel_ate', 0.0)
+    monkeypatch.setattr(radar.estado, 'indisponivel_ate', 0.0)
     monkeypatch.setattr(radar, '_cliente', httpx.AsyncClient(transport=httpx.MockTransport(fora)))
     assert asyncio.run(radar.buscar_status('maxcappi', '400km', '3')) is None
 

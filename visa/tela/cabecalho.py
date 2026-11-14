@@ -12,6 +12,7 @@ import aerodromos
 import camadas
 import impacto
 import modos
+import previsao
 from tela.barra_saude import BarraSaude
 from tela.gaveta import PainelImpacto, PainelSonda
 from tela.mapa import ALTURA_CABECALHO, AreaDoMapa
@@ -59,7 +60,7 @@ class Cabecalho:
             self.saude = BarraSaude(prefs, camadas_)
 
         self.saude.ligar_relogio()
-        ui.timer(PainelImpacto.REDESENHO_S, self.contar_impacto)
+        ui.timer(previsao.REDESENHO_S, self.contar_impacto)
         ui.timer(5, self._atualizar_terminal)
         ui.timer(0.5, self.pintar_modos)      # o modo muda também quando a pessoa mexe no painel
 
