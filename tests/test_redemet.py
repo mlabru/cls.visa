@@ -1,6 +1,7 @@
 import asyncio
 from datetime import UTC, datetime
 
+import httpx
 import numpy as np
 
 import config
@@ -67,3 +68,11 @@ def test_buscar_imagem_recusa_pedidos_estranhos():
     for args in [('../segredo.png', -5, 2), ('radar/a.png', 2, -5), ('radar/a.png', -5, 2, 99)]:
         status, _, _ = asyncio.run(redemet.buscar_imagem(*args))
         assert status == 400, args
+
+
+def test_consulta_sem_produto_devolve_dict_vazio(monkeypatch):
+    # De madrugada a API respondeu {"status": true, "data": []}: virava "'list' object has no attribute 'get'"
+    transporte = httpx.MockTransport(lambda pedido: httpx.Response(200, json={'status': True, 'data': []}))
+    monkeypatch.setattr(redemet, '_cliente', httpx.AsyncClient(transport=transporte))
+    monkeypatch.setattr(redemet, '_cache_api', {})
+    assert asyncio.run(redemet.satelite('realcada')) is None

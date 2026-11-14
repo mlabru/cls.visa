@@ -239,8 +239,12 @@ async def _consultar(caminho: str, validade_s: float, **parametros) -> dict:
         raise Indisponivel(f'API da REDEMET indisponível ({type(erro).__name__})') from erro
     if not corpo.get('status'):
         raise Indisponivel(f"API da REDEMET indisponível ({str(corpo.get('message', 'pedido recusado'))[:80]})")
-    _cache_api[chave] = (time.monotonic(), corpo['data'])
-    return corpo['data']
+    # Sem produto no momento (de madrugada, por exemplo), a API devolve "data": [] em vez de
+    # um objeto. Todos os conversores esperam um dict: lista vazia vira "nenhuma imagem".
+    dados = corpo.get('data')
+    dados = dados if isinstance(dados, dict) else {}
+    _cache_api[chave] = (time.monotonic(), dados)
+    return dados
 
 
 async def radar_api(produto: str) -> list[Imagem]:
