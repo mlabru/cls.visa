@@ -283,9 +283,9 @@ class PainelImpacto:
                 ui.label('calculando (a primeira vez leva uns 10 s)…').classes('legenda-texto')
                 return
             self._resumo(s)
+            self._conflitos()
             self._aerodromos(s)
             self._tmas(s)
-            self._conflitos()
             self._trafego()
 
     @staticmethod
