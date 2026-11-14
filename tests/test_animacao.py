@@ -1,11 +1,11 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import animacao
 import config
 import redemet
 
 E = config.REDEMET_ESTATICO_URL
-T0 = datetime(2026, 11, 13, 14, 0, tzinfo=timezone.utc)
+T0 = datetime(2026, 11, 13, 14, 0, tzinfo=UTC)
 
 
 def _sat(minuto):

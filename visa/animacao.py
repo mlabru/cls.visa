@@ -8,7 +8,7 @@ cada um que já existia naquele horário (o radar repete o quadro quando não h�
 Funções puras: quem baixa as imagens e mexe no mapa é a CamadaAnimacao (camadas.py).
 """
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import redemet
 
@@ -67,7 +67,7 @@ def linha_do_tempo(satelites: list[redemet.Imagem], quadros: list[redemet.Quadro
 
 def rotulo(passo: Passo, agora: datetime | None = None) -> str:
     """'16:30Z · há 20 min'."""
-    agora = agora or datetime.now(timezone.utc)
+    agora = agora or datetime.now(UTC)
     minutos = max(0, round((agora - passo.quando).total_seconds() / 60))
     idade = f'há {minutos} min' if minutos < 120 else f'há {minutos / 60:.1f} h'.replace('.', ',')
     return f'{passo.quando:%H:%M}Z · {idade}'

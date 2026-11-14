@@ -1,11 +1,11 @@
 import copy
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import modos
 import saude
 from interface import PADRAO
 
-AGORA = datetime(2026, 11, 13, 15, 0, tzinfo=timezone.utc)
+AGORA = datetime(2026, 11, 13, 15, 0, tzinfo=UTC)
 
 
 def test_idade_curta():
@@ -25,7 +25,7 @@ def test_raios_e_geoserver():
     assert saude.raios(True, None).texto == 'ao vivo'
     assert saude.raios(False, None).nivel == saude.CRITICO
     assert saude.raios(None, None).nivel == saude.SEM_DADOS
-    passado = saude.raios(True, datetime(2026, 11, 13, 13, 30, tzinfo=timezone.utc))
+    passado = saude.raios(True, datetime(2026, 11, 13, 13, 30, tzinfo=UTC))
     assert (passado.texto, passado.nivel) == ('até 13:30Z', saude.ATENCAO)
 
 

@@ -1,0 +1,22 @@
+# Configuração das ferramentas (pytest e ruff). As dependências continuam em
+# requirements.txt / requirements-dev.txt — este arquivo não instala nada.
+
+[project]
+name = "cls-visa"
+version = "0.1.0"
+description = "Visualizador meteorológico para quem acompanha o tráfego aéreo (NiceGUI)"
+requires-python = ">=3.13"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["visa"]          # os módulos usam imports planos: `import config`
+addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+src = ["visa", "tests"]        # para o ruff saber que `import config` é do projeto
+extend-exclude = [".bkp", ".doc", "dados", "wifs", "static"]
+
+[tool.ruff.format]
+quote-style = "single"         # o código usa aspas simples

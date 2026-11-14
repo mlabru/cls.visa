@@ -117,16 +117,18 @@ def em_area_severa(feicoes: list[dict], tipo: str, raio_km: float, lat: float, l
     """O ponto está numa área (ou a menos de raio_km de um ponto) de tempo severo previsto?"""
     for f in feicoes:
         g = f.get('geometry') or {}
-        if tipo == 'ponto' and g.get('type') == 'Point':
+        forma = g.get('type')
+        if tipo == 'ponto' and forma == 'Point':
             plon, plat = g['coordinates'][:2]
-            if geo.distancia_km(lat, lon, plat, plon) <= raio_km:
-                return True
-        elif g.get('type') == 'Polygon':
-            if geo.dentro(lat, lon, g['coordinates'][0]):
-                return True
-        elif g.get('type') == 'MultiPolygon':
-            if any(geo.dentro(lat, lon, poligono[0]) for poligono in g['coordinates']):
-                return True
+            atinge = geo.distancia_km(lat, lon, plat, plon) <= raio_km
+        elif forma == 'Polygon':
+            atinge = geo.dentro(lat, lon, g['coordinates'][0])
+        elif forma == 'MultiPolygon':
+            atinge = any(geo.dentro(lat, lon, poligono[0]) for poligono in g['coordinates'])
+        else:
+            atinge = False
+        if atinge:
+            return True
     return False
 
 

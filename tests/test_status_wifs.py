@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -7,7 +7,7 @@ import pytest
 import radar
 import wifs
 
-AGORA = datetime(2026, 11, 13, 12, 0, tzinfo=timezone.utc)
+AGORA = datetime(2026, 11, 13, 12, 0, tzinfo=UTC)
 
 
 def test_classificacao_do_status_como_no_original():
@@ -42,8 +42,8 @@ def test_busca_do_status(monkeypatch):
     monkeypatch.setattr(radar, '_cliente', httpx.AsyncClient(transport=httpx.MockTransport(wfs_falso)))
     monkeypatch.setattr(radar, '_indisponivel_ate', 0.0)
     status = asyncio.run(radar.buscar_status('maxcappi', '400km', '3'))
-    assert status == {'ga': datetime(2026, 11, 13, 11, 50, tzinfo=timezone.utc),
-                      'be': datetime(2026, 11, 13, 9, 0, tzinfo=timezone.utc)}
+    assert status == {'ga': datetime(2026, 11, 13, 11, 50, tzinfo=UTC),
+                      'be': datetime(2026, 11, 13, 9, 0, tzinfo=UTC)}
     assert pedidos[0]['typeName'] == 'redemet:radar_status_latest'
     assert pedidos[0]['cql_filter'] == "produto='maxcappi_400km'"
 

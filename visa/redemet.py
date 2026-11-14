@@ -26,7 +26,7 @@ import math
 import re
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
 
 import httpx
@@ -113,7 +113,7 @@ def _data(texto: str | None) -> datetime | None:
     if not texto:
         return None
     try:
-        return datetime.strptime(texto[:19], '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
+        return datetime.strptime(texto[:19], '%Y-%m-%d %H:%M:%S').replace(tzinfo=UTC)
     except ValueError:
         return None
 

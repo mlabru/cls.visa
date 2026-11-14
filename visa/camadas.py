@@ -11,14 +11,15 @@ Padrões que se repetem nas classes (explicados em DECISOES.md):
   self.prefs     é o MESMO dicionário de preferências da interface (não uma cópia).
 Os atributos de tela (ui.label etc.) começam como None e são preenchidos pela interface.
 """
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import ClassVar
 
 import httpx
 from nicegui import background_tasks, ui
 
 import aerodromos
-import animacao
 import aeronaves
+import animacao
 import config
 import desenho
 import espaco
@@ -180,7 +181,7 @@ class CamadaRadar:
         lista = []
         if p['radar_ligado'] and p['radar_circulos']:
             raio_m = self.raio_km() * 1000
-            agora = datetime.now(timezone.utc)
+            agora = datetime.now(UTC)
             for r in radar.RADARES:
                 if r.codigo not in p['radares']:
                     continue
@@ -633,7 +634,7 @@ class CamadaRotas:
 class CamadaSevero:
     """Tempo severo previsto: escolhas em cascata (modelo → resolução → tipo → rodada → validade)."""
 
-    NIVEIS = ['origem', 'resolucao', 'tipo', 'rodada', 'validade']
+    NIVEIS = ('origem', 'resolucao', 'tipo', 'rodada', 'validade')
 
     def __init__(self, mapa: ui.leaflet, prefs: dict) -> None:
         self.mapa, self.prefs = mapa, prefs
@@ -838,7 +839,7 @@ class CamadaVento:
 class CamadaAeronaves:
     # Tráfego é contexto para o meteorologista: desenho discreto, para o tempo dominar a tela.
     # A exceção é a aeronave em área de raios ou eco forte: âmbar e sempre com o indicativo.
-    ESTILO = {'cor': '#94a3b8', 'corIndicativo': '#cbd5e1', 'corNivel': '#94a3b8', 'tamanho': 12,
+    ESTILO: ClassVar[dict] = {'cor': '#94a3b8', 'corIndicativo': '#cbd5e1', 'corNivel': '#94a3b8', 'tamanho': 12,
               'corAlerta': '#f59e0b'}
 
     def __init__(self, mapa: ui.leaflet, prefs: dict) -> None:
@@ -926,7 +927,7 @@ class CamadasEspaco:
             return
         emenda, proxima = espaco.validade(caminho)
         if proxima:  # o próprio arquivo diz até quando vale (próxima emenda AIRAC)
-            hoje = datetime.now(timezone.utc).date().isoformat()
+            hoje = datetime.now(UTC).date().isoformat()
             velho = hoje >= proxima
             fim = f'{proxima[8:10]}/{proxima[5:7]}'
             rotulo.set_text(f'fonte: arquivo local, AIRAC de {emenda[8:10]}/{emenda[5:7]}' +

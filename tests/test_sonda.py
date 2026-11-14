@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import numpy as np
 
@@ -32,7 +32,7 @@ def test_vento_no_ponto():
 
 
 def test_raios_perto():
-    quando = datetime(2026, 11, 13, 17, 0, tzinfo=timezone.utc)
+    quando = datetime(2026, 11, 13, 17, 0, tzinfo=UTC)
     quadro = redemet.QuadroRaios(quando, ((-23.45, -46.45, 5), (-23.55, -46.55, 40), (-25.0, -46.5, 0)))
     r = sonda.raios_perto(quadro, -23.43, -46.47)
     assert r.contagem == {10: 1, 20: 2, 50: 2}

@@ -18,7 +18,7 @@ import logging
 import math
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 import websockets
@@ -63,7 +63,7 @@ class Trafego:
                 self.aeronaves[aeronave.chave] = aeronave
         self.expirar()
         self.versao += 1
-        self.recebido_em = datetime.now(timezone.utc)
+        self.recebido_em = datetime.now(UTC)
 
     def expirar(self) -> None:
         limite = time.monotonic() - config.AERONAVE_EXPIRA_S
@@ -188,7 +188,7 @@ async def manter_conexao() -> None:
                 trafego.situacao = 'conexão encerrada pelo servidor'
             except asyncio.CancelledError:
                 raise
-            except Exception as erro:  # rede, autenticação, protocolo
+            except Exception as erro:  # noqa: BLE001 — rede, autenticação, protocolo: o laço nunca pode morrer
                 trafego.situacao = f'erro: {type(erro).__name__}'
                 log.warning('Pusher: %s — nova tentativa em %ss', erro, espera)
             if trafego.conectado:   # chegou a funcionar: a próxima tentativa é rápida

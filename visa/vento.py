@@ -10,7 +10,7 @@ A lista de horários disponíveis é montada lendo a pasta — não há lista fi
 import json
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 
@@ -33,7 +33,7 @@ def listar_arquivos(pasta: Path = config.VENTO_DIR) -> list[ArquivoVento]:
         m = _PADRAO.match(caminho.name)
         if not m:
             continue
-        horario = datetime.strptime(m.group(1), '%Y%m%dT%H%M%SZ').replace(tzinfo=timezone.utc)
+        horario = datetime.strptime(m.group(1), '%Y%m%dT%H%M%SZ').replace(tzinfo=UTC)
         arquivos.append(ArquivoVento(caminho, horario, int(m.group(2))))
     return sorted(arquivos, key=lambda a: (a.horario, a.pressao_pa), reverse=True)
 
@@ -96,7 +96,7 @@ def horario_referencia(dados: list[dict], arquivo: ArquivoVento) -> datetime:
 
 def idade(referencia: datetime, agora: datetime | None = None) -> tuple[str, str]:
     """Texto da idade do dado e a cor do aviso ('positive', 'warning', 'negative')."""
-    agora = agora or datetime.now(timezone.utc)
+    agora = agora or datetime.now(UTC)
     horas = (agora - referencia).total_seconds() / 3600
     if horas < 1:
         texto = f'há {max(0, round(horas * 60))} min'

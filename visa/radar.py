@@ -14,7 +14,7 @@ import math
 import re
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import numpy as np
@@ -220,7 +220,7 @@ _indisponivel_ate = 0.0
 
 
 def _registrar(ok: bool, mensagem: str) -> None:
-    estado.ok, estado.mensagem, estado.quando = ok, mensagem, datetime.now(timezone.utc)
+    estado.ok, estado.mensagem, estado.quando = ok, mensagem, datetime.now(UTC)
 
 
 async def alcancavel(url: str = '', espera_s: float = 5) -> bool:
@@ -229,7 +229,7 @@ async def alcancavel(url: str = '', espera_s: float = 5) -> bool:
     porta = endereco.port or (443 if endereco.scheme == 'https' else 80)
     try:
         _, escrita = await asyncio.wait_for(asyncio.open_connection(endereco.host, porta), espera_s)
-    except (OSError, asyncio.TimeoutError):
+    except (TimeoutError, OSError):
         return False
     escrita.close()
     return True
@@ -314,7 +314,7 @@ async def buscar_tile(parametros: dict[str, str]) -> tuple[int, bytes, str]:
 
 def janela_de_tempo(minutos: int = config.RADAR_JANELA_MIN) -> str:
     """Intervalo TIME do WMS: 'início/agora' em UTC, sem milissegundos."""
-    agora = datetime.now(timezone.utc).replace(microsecond=0)
+    agora = datetime.now(UTC).replace(microsecond=0)
     inicio = agora - timedelta(minutes=minutos)
     fmt = '%Y-%m-%dT%H:%M:%SZ'
     return f'{inicio.strftime(fmt)}/{agora.strftime(fmt)}'
@@ -346,7 +346,7 @@ STATUS_FILTRO_PADRAO = {'green': True, 'yellow': True, 'red': True, 'gray': Fals
 def classificar_status(ultima: datetime | None, agora: datetime | None = None) -> str:
     if ultima is None:
         return 'gray'
-    minutos = ((agora or datetime.now(timezone.utc)) - ultima).total_seconds() / 60
+    minutos = ((agora or datetime.now(UTC)) - ultima).total_seconds() / 60
     if minutos <= 30:
         return 'green'
     if minutos <= 60:
@@ -369,7 +369,7 @@ def _data_utc(texto: str) -> datetime | None:
         d = datetime.fromisoformat(str(texto))     # desde o Python 3.11 aceita o sufixo 'Z'
     except ValueError:
         return None
-    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+    return d if d.tzinfo else d.replace(tzinfo=UTC)
 
 
 async def buscar_status(produto: str, alcance: str, altura: str) -> dict[str, datetime] | None:

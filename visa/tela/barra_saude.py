@@ -4,7 +4,7 @@ As regras (o que é recente, atrasado, crítico) estão em saude.py; aqui só se
 cada camada sabe e se desenha.
 """
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from nicegui import ui
 
@@ -33,7 +33,7 @@ class BarraSaude:
     def indicadores(self) -> list[saude.Indicador]:
         p, c = self.prefs, self.c
         lista = []
-        agora = datetime.now(timezone.utc)
+        agora = datetime.now(UTC)
         if p['satelite_ligado']:
             imagem = c.satelite.imagem
             lista.append(saude.satelite(imagem.quando if imagem else None, c.satelite.erro, agora))

@@ -5,7 +5,7 @@ Funções puras: recebem o que cada camada sabe (horários, erros) e devolvem um
 Quem decide os limites (o que é "recente", "atrasado", "velho") é este arquivo.
 """
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import config
 
@@ -43,7 +43,7 @@ def _nivel(segundos: float, atencao_s: float, critico_s: float) -> str:
 
 
 def _agora(agora: datetime | None) -> datetime:
-    return agora or datetime.now(timezone.utc)
+    return agora or datetime.now(UTC)
 
 
 # ---------------------------------------------------------------------------

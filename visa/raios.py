@@ -5,7 +5,7 @@ As imagens passam pelo mesmo proxy do radar (/radar/wms). O GeoServer desenha os
 de uma janela de 60 min com um dos dois estilos (SLD) abaixo; os estilos recebem, pelo
 parâmetro `env`, o raio do círculo e os instantes que separam as classes de tempo.
 """
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 JANELA_MIN = 60
 PASSO_MIN = 15          # botões ◀ ▶ andam de 15 em 15 min
@@ -21,7 +21,7 @@ LEGENDA_TEMPO = [('#ef4444', '0 a 15 min'), ('#fff000', '15 a 30 min'),
 
 
 def agora() -> datetime:
-    return datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    return datetime.now(UTC).replace(second=0, microsecond=0)
 
 
 def _iso(d: datetime) -> str:

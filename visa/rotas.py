@@ -11,7 +11,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 import httpx
 
@@ -90,7 +90,7 @@ async def buscar(indicativo: str, hoje: date | None = None) -> Rota | None:
     guardado = _cache.get(indicativo)
     if guardado and time.monotonic() - guardado[0] < CACHE_S:
         return guardado[1]
-    hoje = hoje or datetime.now(timezone.utc).date()
+    hoje = hoje or datetime.now(UTC).date()
     rota = await _consultar(indicativo, hoje) or await _consultar(indicativo, hoje - timedelta(days=1))
     _cache[indicativo] = (time.monotonic(), rota)
     return rota

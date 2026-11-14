@@ -268,7 +268,7 @@ class PainelCamadas:
                 if not definicao.estilizavel:
                     continue
                 estilo = p['estilos'][chave]
-                mudar = lambda c=chave: es.mudar_estilo(c)     # noqa: E731 (um nome curto para 3 controles)
+                mudar = lambda c=chave: es.mudar_estilo(c)     # um nome curto para 3 controles
                 with ui.column().classes('w-full q-pl-lg gap-1').bind_visibility_from(p['espaco'], chave):
                     ui.select(espaco.CORES, label='Cor', on_change=mudar) \
                         .bind_value(estilo, 'cor').props('dense').classes('w-full')

@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import numpy as np
 
@@ -25,7 +25,7 @@ def test_converter_radar_pega_o_quadro_mais_novo():
     ]}
     be, al, xx = redemet.converter_radar(dados)
     assert be.codigo == 'be' and be.caminho == 'radar/2026/11/13/be/maxcappi/maps/2026-11-13--16:08:07.png'
-    assert be.quando == datetime(2026, 11, 13, 16, 8, 7, tzinfo=timezone.utc)
+    assert be.quando == datetime(2026, 11, 13, 16, 8, 7, tzinfo=UTC)
     assert be.limites == [[-4.96, -52.06], [2.19, -44.90]]
     assert al.caminho == '' and al.quando is None
     assert xx.caminho == ''                                   # imagem de outro servidor: recusada

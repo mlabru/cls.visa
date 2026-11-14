@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import config
 import vento
@@ -42,7 +42,7 @@ def test_recorte_preserva_os_valores(tmp_path):
 
 
 def test_idade_e_cores():
-    ref = datetime(2026, 2, 28, 12, tzinfo=timezone.utc)
+    ref = datetime(2026, 2, 28, 12, tzinfo=UTC)
     assert vento.idade(ref, ref + timedelta(hours=3)) == ('há 3 h', 'positive')
     assert vento.idade(ref, ref + timedelta(hours=12))[1] == 'warning'
     texto, cor = vento.idade(ref, ref + timedelta(days=257))

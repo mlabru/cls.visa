@@ -13,7 +13,7 @@ O GeoServer é interno: quem consulta é o servidor Python, nunca o navegador.
 import logging
 import re
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 
@@ -168,7 +168,7 @@ def limites(lista: list[dict]) -> list[list[float]] | None:
 # ---------------------------------------------------------------------------
 
 def _data(texto: str) -> datetime:
-    return datetime.fromisoformat(texto).astimezone(timezone.utc)     # Python 3.11+ aceita o 'Z'
+    return datetime.fromisoformat(texto).astimezone(UTC)     # Python 3.11+ aceita o 'Z'
 
 
 def rotulo(texto: str) -> str:
@@ -181,7 +181,7 @@ def rotulo(texto: str) -> str:
 
 def situacao(validade: str, referencia: datetime | None = None) -> tuple[str, str]:
     """(texto, cor) como no original: Expirado, Próximo (< 6 h) ou Válido."""
-    referencia = referencia or datetime.now(timezone.utc)
+    referencia = referencia or datetime.now(UTC)
     horas = (_data(validade) - referencia).total_seconds() / 3600
     if horas < 0:
         return 'expirada', 'negative'

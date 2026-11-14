@@ -1,5 +1,5 @@
 import asyncio
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 import httpx
 import pytest
@@ -8,7 +8,7 @@ import raios
 import rotas
 import severo
 
-FIM = datetime(2026, 11, 13, 14, 30, tzinfo=timezone.utc)
+FIM = datetime(2026, 11, 13, 14, 30, tzinfo=UTC)
 
 
 # --- Raios -------------------------------------------------------------------------
@@ -25,7 +25,7 @@ def test_parametros_dos_raios():
 
 def test_janela_dos_raios_anda_e_volta_ao_vivo():
     antes = raios.deslocar(None, -15, referencia=FIM)
-    assert antes == datetime(2026, 11, 13, 14, 15, tzinfo=timezone.utc)
+    assert antes == datetime(2026, 11, 13, 14, 15, tzinfo=UTC)
     assert raios.deslocar(antes, -15, referencia=FIM).minute == 0
     assert raios.deslocar(antes, 15, referencia=FIM) is None      # chegou em "agora": ao vivo
     assert raios.deslocar(None, 15, referencia=FIM) is None       # não vai para o futuro
@@ -73,7 +73,7 @@ def test_filtro_cql_recusa_valores_estranhos():
 
 
 def test_situacao_e_rotulo():
-    agora = datetime(2026, 11, 13, 4, 0, tzinfo=timezone.utc)
+    agora = datetime(2026, 11, 13, 4, 0, tzinfo=UTC)
     assert severo.situacao('2026-11-13T03:00:00Z', agora)[0] == 'expirada'
     assert severo.situacao('2026-11-13T06:00:00Z', agora)[0] == 'próxima (< 6 h)'
     assert severo.situacao('2026-11-13T12:00:00Z', agora)[0] == 'válida'
