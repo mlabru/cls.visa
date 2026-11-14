@@ -66,7 +66,7 @@ class Indisponivel(Exception):
     """
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Imagem:
     caminho: str                 # relativo a REDEMET_ESTATICO_URL
     sul: float
@@ -136,7 +136,7 @@ def converter_radar(dados: dict) -> list[Imagem]:
     return lista
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class QuadroRadar:
     """Um momento da animação do radar: as imagens das estações nesse horário."""
     quando: datetime

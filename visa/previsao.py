@@ -33,7 +33,9 @@ import sys
 from collections import Counter
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 
@@ -63,6 +65,15 @@ TEXTO_CONFIANCA = {ALTA: 'confiança alta', MEDIA: 'confiança média', BAIXA: '
 COR_CONFIANCA = {ALTA: '#ef4444', MEDIA: '#f59e0b', BAIXA: '#3b82f6'}   # as cores de impacto.NIVEIS
 MEDIDO, ESTIMADO, SEM_MEDIDA = 'medido', 'estimado', 'sem medida'
 DIRECOES = ('N', 'NE', 'L', 'SE', 'S', 'SO', 'O', 'NO')
+
+
+class Desfecho(StrEnum):
+    """Tipos de evento do registro (o campo 'tipo' do JSON). StrEnum: grava e compara como texto."""
+    ALERTA = 'alerta'
+    ACERTO = 'acerto'
+    FALSO = 'falso'
+    INDETERMINADO = 'indeterminado'
+    NAO_PREVISTO = 'nao_previsto'
 
 
 # ---------------------------------------------------------------------------
@@ -203,7 +214,7 @@ def anterior(quadros: list, ultimo) -> object | None:
 # Conflitos
 # ---------------------------------------------------------------------------
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Conflito:
     chave: str                  # da aeronave (aeronaves.Aeronave.chave)
     indicativo: str
@@ -216,6 +227,11 @@ class Conflito:
     nucleo: Nucleo
     confianca: str
     calculado: datetime
+
+    @property
+    def prazo(self) -> datetime:
+        """Até quando a aeronave pode entrar na área de risco para o alerta contar como acerto."""
+        return self.calculado + timedelta(minutes=self.minutos + TOLERANCIA_MIN)
 
 
 def em_rota(a) -> bool:
@@ -282,12 +298,6 @@ def calcular(elegiveis: list, lista: list[Nucleo], agora: datetime) -> list[Conf
 # ---------------------------------------------------------------------------
 
 @dataclass
-class Alerta:
-    conflito: Conflito
-    prazo: datetime              # encontro previsto + TOLERANCIA_MIN
-
-
-@dataclass
 class Verificador:
     """Acompanha cada alerta até o desfecho, minuto a minuto.
 
@@ -297,7 +307,7 @@ class Verificador:
     - não previsto: entrou numa área de risco sem alerta antes. Inclui tempestade que se formou
       em cima dela (o que a extrapolação não tem como prever).
     """
-    pendentes: dict[str, Alerta] = field(default_factory=dict)
+    pendentes: dict[str, Conflito] = field(default_factory=dict)    # aeronave -> alerta em aberto
     em_perigo: set[str] = field(default_factory=set)
     iniciado: bool = False
 
@@ -309,25 +319,25 @@ class Verificador:
         for chave in sorted(em_perigo - self.em_perigo):
             alerta = self.pendentes.pop(chave, None)
             if alerta:
-                eventos.append(_evento('acerto', agora, alerta.conflito,
-                                       antecedencia_min=round((agora - alerta.conflito.calculado).total_seconds() / 60)))
+                eventos.append(_evento(Desfecho.ACERTO, agora, alerta,
+                                       antecedencia_min=round((agora - alerta.calculado).total_seconds() / 60)))
             else:
-                eventos.append({'tipo': 'nao_previsto', 'quando': agora.isoformat(timespec='seconds'),
+                eventos.append({'tipo': Desfecho.NAO_PREVISTO, 'quando': agora.isoformat(timespec='seconds'),
                                 'aeronave': chave})
         self.em_perigo = set(em_perigo)
         for chave, alerta in list(self.pendentes.items()):
             if agora > alerta.prazo:
                 del self.pendentes[chave]
-                eventos.append(_evento('falso' if chave in presentes else 'indeterminado', agora, alerta.conflito))
+                desfecho = Desfecho.FALSO if chave in presentes else Desfecho.INDETERMINADO
+                eventos.append(_evento(desfecho, agora, alerta))
         for c in conflitos:
             if c.chave not in self.pendentes and c.chave not in em_perigo:
-                prazo = c.calculado + timedelta(minutes=c.minutos + TOLERANCIA_MIN)
-                self.pendentes[c.chave] = Alerta(c, prazo)
-                eventos.append(_evento('alerta', agora, c))
+                self.pendentes[c.chave] = c
+                eventos.append(_evento(Desfecho.ALERTA, agora, c))
         return eventos
 
 
-def _evento(tipo: str, agora: datetime, c: Conflito, **extra) -> dict:
+def _evento(tipo: Desfecho, agora: datetime, c: Conflito, **extra) -> dict:
     n = c.nucleo
     return {'tipo': tipo, 'quando': agora.isoformat(timespec='seconds'), 'aeronave': c.chave,
             'indicativo': c.indicativo, 'fl': c.fl, 'minutos': c.minutos, 'confianca': c.confianca,
@@ -353,13 +363,13 @@ def registrar(eventos: list[dict], pasta: Path = config.PREVISAO_DIR) -> None:
 
 def resumir(contagem: Counter) -> dict:
     """Taxas a partir da contagem dos desfechos (None quando não há casos)."""
-    acertos, falsos, nao_previstos = contagem['acerto'], contagem['falso'], contagem['nao_previsto']
+    acertos, falsos, nao_previstos = contagem[Desfecho.ACERTO], contagem[Desfecho.FALSO], contagem[Desfecho.NAO_PREVISTO]
 
     def taxa(a: int, b: int) -> float | None:
         return round(a / (a + b), 2) if a + b else None
 
-    return {'alertas': contagem['alerta'], 'acertos': acertos, 'falsos': falsos,
-            'indeterminados': contagem['indeterminado'], 'nao_previstos': nao_previstos,
+    return {'alertas': contagem[Desfecho.ALERTA], 'acertos': acertos, 'falsos': falsos,
+            'indeterminados': contagem[Desfecho.INDETERMINADO], 'nao_previstos': nao_previstos,
             'acerto': taxa(acertos, falsos),           # dos alertas com desfecho, quantos se confirmaram
             'deteccao': taxa(acertos, nao_previstos)}  # das entradas em área de risco, quantas foram previstas
 
@@ -381,17 +391,23 @@ class Situacao:
 situacao = Situacao()
 
 
-def atualizar_nucleos(radar: tuple[datetime, dict] | None, radar_antes: tuple[datetime, dict] | None,
-                      raios: tuple[datetime, dict] | None, raios_antes: tuple[datetime, dict] | None) -> None:
+class QuadroCelulas(NamedTuple):
+    """As células de 0,1° de um quadro (radar ou raios), já calculadas por impacto.py."""
+    quando: datetime
+    celulas: dict[Chave, int]           # radar: dBZ; raios: minutos ativa
+
+
+def atualizar_nucleos(radar: QuadroCelulas | None, radar_antes: QuadroCelulas | None,
+                      raios: QuadroCelulas | None, raios_antes: QuadroCelulas | None) -> None:
     """Recalcula os núcleos e o seu movimento (a cada quadro novo de radar ou de raios)."""
-    com_raios = set(raios[1]) if raios else set()
+    com_raios = set(raios.celulas) if raios else set()
     lista = []
     if radar:
-        antes = nucleos(radar_antes[1], RADAR, radar_antes[0]) if radar_antes else []
-        lista += rastrear(nucleos(radar[1], RADAR, radar[0], com_raios), antes)
+        antes = nucleos(radar_antes.celulas, RADAR, radar_antes.quando) if radar_antes else []
+        lista += rastrear(nucleos(radar.celulas, RADAR, radar.quando, com_raios), antes)
     if raios:
-        antes = nucleos(raios_antes[1], RAIOS, raios_antes[0]) if raios_antes else []
-        lista += rastrear(nucleos(raios[1], RAIOS, raios[0]), antes)
+        antes = nucleos(raios_antes.celulas, RAIOS, raios_antes.quando) if raios_antes else []
+        lista += rastrear(nucleos(raios.celulas, RAIOS, raios.quando), antes)
     situacao.nucleos = estimar(lista)
     medidos = sum(1 for n in situacao.nucleos if n.movimento == MEDIDO)
     log.info('previsão: %d núcleos (%d com movimento medido)', len(situacao.nucleos), medidos)

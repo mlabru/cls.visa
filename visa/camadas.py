@@ -50,7 +50,7 @@ class CamadaRadar:
     def __init__(self, mapa: ui.leaflet, prefs: dict) -> None:
         self.mapa, self.prefs, self.camada = mapa, prefs, None
         self.imagens: dict[str, tuple] = {}       # API: código -> (camada no mapa, Imagem)
-        self.erro_api = ''
+        self.erro = ''
         self.congelada = False                    # durante a animação, não troca as imagens
         self._pedido = 0
         self.circulos: list = []                  # camadas L.circle dos círculos de alcance
@@ -104,9 +104,9 @@ class CamadaRadar:
         pedido, p = self._pedido, self.prefs
         try:
             lista = await redemet.radar_api(p['radar_produto_api'])
-            self.erro_api = ''
+            self.erro = ''
         except redemet.Indisponivel as erro:
-            self.erro_api = str(erro)
+            self.erro = str(erro)
             return
         if pedido != self._pedido or not p['radar_ligado'] or not self.pela_api():
             return
@@ -147,9 +147,9 @@ class CamadaRadar:
             try:
                 lista = await redemet.radar_api(p['radar_produto_api'])
                 ultimas = {i.codigo: i.quando for i in lista if i.quando and i.caminho}
-                self.erro_api = ''
+                self.erro = ''
             except redemet.Indisponivel as erro:
-                self.erro_api = str(erro)
+                self.erro = str(erro)
                 ultimas = None
         else:
             ultimas = await radar.buscar_status(p['radar_produto'], p['radar_alcance'], p['radar_altura'])
@@ -219,7 +219,7 @@ class CamadaSatelite:
         self.camada = None
         self.imagem: redemet.Imagem | None = None
         self.erro = ''
-        self.info: ui.label | None = None         # preenchido por tela/painel_camadas.py
+        self.rotulo_info: ui.label | None = None         # preenchido por tela/painel_camadas.py
         self.congelada = False                    # durante a animação, não troca a imagem
         self._pedido = 0
 
@@ -263,15 +263,15 @@ class CamadaSatelite:
             self.camada.run_method('setOpacity', self.prefs['satelite_opacidade'])
 
     def _informar(self) -> None:
-        if not self.info:
+        if not self.rotulo_info:
             return
         if self.erro:
-            self.info.set_text(self.erro)
+            self.rotulo_info.set_text(self.erro)
         elif self.imagem and self.imagem.quando:
-            self.info.set_text(f'imagem de {self.imagem.quando:%d/%m %H:%MZ}')
+            self.rotulo_info.set_text(f'imagem de {self.imagem.quando:%d/%m %H:%MZ}')
         else:
-            self.info.set_text('')
-        self.info.classes(replace='text-caption ' + ('text-negative' if self.erro else 'text-grey'))
+            self.rotulo_info.set_text('')
+        self.rotulo_info.classes(replace='text-caption ' + ('text-negative' if self.erro else 'text-grey'))
 
 
 class CamadaAnimacao:
@@ -493,10 +493,10 @@ class CamadaRaios:
     def __init__(self, mapa: ui.leaflet, prefs: dict) -> None:
         self.mapa, self.prefs, self.camada = mapa, prefs, None
         self.fim: datetime | None = None          # None = ao vivo (GeoServer)
-        self.janela: ui.label | None = None       # preenchido por tela/painel_camadas.py
+        self.rotulo_janela: ui.label | None = None       # preenchido por tela/painel_camadas.py
         self.imagem_api = None                    # camada da imagem (API)
         self.quadro: redemet.QuadroRaios | None = None
-        self.erro_api = ''
+        self.erro = ''
         self.congelada = False                    # durante a animação, não troca a imagem
         self._pedido = 0
 
@@ -554,9 +554,9 @@ class CamadaRaios:
         pedido = self._pedido
         try:
             quadros = await redemet.raios_quadros()
-            self.erro_api = '' if quadros else 'a REDEMET não devolveu raios'
+            self.erro = '' if quadros else 'a REDEMET não devolveu raios'
         except redemet.Indisponivel as erro:
-            self.erro_api = str(erro)
+            self.erro = str(erro)
             return
         if pedido != self._pedido or not quadros or not self.prefs['raios_ligado'] or not self.pela_api():
             return
@@ -572,9 +572,9 @@ class CamadaRaios:
         self.quadro = ultimo
 
     def mostrar_janela(self) -> None:
-        if self.janela:
+        if self.rotulo_janela:
             texto = raios.rotulo_janela(self.fim or raios.agora())
-            self.janela.set_text(texto + (' · ao vivo' if self.fim is None else ''))
+            self.rotulo_janela.set_text(texto + (' · ao vivo' if self.fim is None else ''))
 
 
 class CamadaRotas:
@@ -583,7 +583,7 @@ class CamadaRotas:
     def __init__(self, mapa: ui.leaflet) -> None:
         self.mapa = mapa
         self.camadas: dict[str, list] = {}         # indicativo -> linhas (L.polyline) no mapa
-        self.lista: ui.label | None = None        # preenchidos por tela/painel_camadas.py
+        self.rotulo_lista: ui.label | None = None        # preenchidos por tela/painel_camadas.py
         self.botao_limpar: ui.button | None = None
 
     async def alternar(self, indicativo: str) -> None:
@@ -634,8 +634,8 @@ class CamadaRotas:
         self.mostrar_lista()
 
     def mostrar_lista(self) -> None:
-        if self.lista:
-            self.lista.set_text('Rotas no mapa: ' + ', '.join(self.camadas) if self.camadas else '')
+        if self.rotulo_lista:
+            self.rotulo_lista.set_text('Rotas no mapa: ' + ', '.join(self.camadas) if self.camadas else '')
         if self.botao_limpar:
             self.botao_limpar.set_visibility(bool(self.camadas))
 
@@ -653,8 +653,8 @@ class CamadaSevero:
         self.erro = ''                                   # última falha do GeoServer (barra de saúde)
         self.cat: list[dict] = []
         self.escolha = dict.fromkeys(self.NIVEIS)        # valores atuais (o painel se liga aqui)
-        self.selects: dict[str, ui.select] = {}          # preenchidos por tela/painel_camadas.py
-        self.situacao: ui.label | None = None
+        self.seletores: dict[str, ui.select] = {}          # preenchidos por tela/painel_camadas.py
+        self.rotulo_situacao: ui.label | None = None
         self._pedido = 0
 
     def _opcoes(self, nivel: str) -> dict[str, str]:
@@ -679,8 +679,8 @@ class CamadaSevero:
                 valores = list(opcoes)
                 atual = (valores[-1] if nivel == 'validade' else valores[0]) if valores else None
             self.escolha[nivel] = atual          # antes do select: assim mudou() reconhece e ignora
-            if nivel in self.selects:
-                self.selects[nivel].set_options(opcoes, value=atual)
+            if nivel in self.seletores:
+                self.seletores[nivel].set_options(opcoes, value=atual)
 
     async def ligar(self) -> None:
         if not self.prefs['severo_ligado']:
@@ -714,7 +714,7 @@ class CamadaSevero:
         await self.desenhar()
 
     async def mudou(self, nivel: str) -> None:
-        valor = self.selects[nivel].value
+        valor = self.seletores[nivel].value
         if valor == self.escolha[nivel]:   # mudança feita pelo próprio Python (_cascata/andar)
             return
         self.escolha[nivel] = valor
@@ -729,7 +729,7 @@ class CamadaSevero:
         i = validades.index(self.escolha['validade']) + passo
         if 0 <= i < len(validades):
             self.escolha['validade'] = validades[i]
-            self.selects['validade'].set_value(validades[i])
+            self.seletores['validade'].set_value(validades[i])
             await self.desenhar()
 
     async def desenhar(self) -> None:
@@ -780,17 +780,17 @@ class CamadaSevero:
             self.camadas[0].run_method('setStyle', desenho.severo_estilo(self.prefs['severo_estilo'], self.tipo))
 
     def _informar(self, texto: str, cor: str = 'grey') -> None:
-        if self.situacao:
-            self.situacao.set_text(texto)
-            self.situacao.classes(replace=f'text-caption text-{cor}')
+        if self.rotulo_situacao:
+            self.rotulo_situacao.set_text(texto)
+            self.rotulo_situacao.classes(replace=f'text-caption text-{cor}')
 
 
 class CamadaVento:
     def __init__(self, mapa: ui.leaflet, prefs: dict) -> None:
         self.mapa, self.prefs, self.camada = mapa, prefs, None
         self.referencia: datetime | None = None
-        self.aviso: ui.label | None = None       # preenchidos por tela/painel_camadas.py
-        self.horarios: ui.select | None = None
+        self.rotulo_aviso: ui.label | None = None       # preenchidos por tela/painel_camadas.py
+        self.seletor_horario: ui.select | None = None
         if prefs['vento_horario'] not in self.opcoes_horario():
             prefs['vento_horario'] = 'recente'
 
@@ -801,8 +801,8 @@ class CamadaVento:
         return opcoes
 
     def trocar_nivel(self) -> None:
-        if self.horarios:
-            self.horarios.set_options(self.opcoes_horario(), value='recente')
+        if self.seletor_horario:
+            self.seletor_horario.set_options(self.opcoes_horario(), value='recente')
         self.aplicar()
 
     def aplicar(self) -> None:
@@ -832,17 +832,17 @@ class CamadaVento:
         self.mostrar_idade()
 
     def mostrar_idade(self) -> None:
-        if not self.aviso:
+        if not self.rotulo_aviso:
             return
         if self.referencia is None:
-            self.aviso.set_visibility(False)
+            self.rotulo_aviso.set_visibility(False)
             return
         texto, cor = vento.idade(self.referencia)
         pa = config.VENTO_FL_PARA_PA[self.prefs['vento_fl']]
-        self.aviso.set_text(f"FL{self.prefs['vento_fl']:03d} / {pa // 100} hPa · "
+        self.rotulo_aviso.set_text(f"FL{self.prefs['vento_fl']:03d} / {pa // 100} hPa · "
                             f"ref. {self.referencia:%d/%m/%Y %H:%MZ} · {texto}")
-        self.aviso.classes(replace=f'text-{cor} text-caption')
-        self.aviso.set_visibility(True)
+        self.rotulo_aviso.classes(replace=f'text-{cor} text-caption')
+        self.rotulo_aviso.set_visibility(True)
 
 
 class CamadaAeronaves:
@@ -857,7 +857,7 @@ class CamadaAeronaves:
         with mapa:
             self.camada = mapa.generic_layer(name='aeronavesLayer',
                                              args=[{**self.ESTILO, 'rotulos': prefs['aeronaves_rotulos']}])
-        self.contador: ui.label | None = None
+        self.rotulo_contador: ui.label | None = None
 
     def prefixos(self) -> list[str]:
         texto = self.prefs['aeronaves_prefixos'].upper()
@@ -876,8 +876,8 @@ class CamadaAeronaves:
         else:
             lista = []
         self.camada.run_method('setDados', lista)
-        if self.contador:
-            self.contador.set_text(f'{len(lista)} exibidas de {len(aeronaves.trafego.aeronaves)}')
+        if self.rotulo_contador:
+            self.rotulo_contador.set_text(f'{len(lista)} exibidas de {len(aeronaves.trafego.aeronaves)}')
 
     def mudar_rotulos(self) -> None:
         self.camada.run_method('setOpcoes', {'rotulos': self.prefs['aeronaves_rotulos']})
@@ -927,7 +927,7 @@ class CamadasEspaco:
         self.mapa, self.prefs = mapa, prefs
         self.camadas: dict[str, object] = {}
         self.vetorial: set[str] = set()          # chaves desenhadas a partir de arquivo local
-        self.fontes: dict[str, ui.label] = {}    # preenchido por tela/painel_camadas.py
+        self.rotulos_fonte: dict[str, ui.label] = {}    # preenchido por tela/painel_camadas.py
 
     def estilo_vetor(self, chave: str) -> dict:
         definicao = espaco.POR_CHAVE[chave]
@@ -963,7 +963,7 @@ class CamadasEspaco:
             self.camadas[chave] = self.mapa.wms_layer(url_template=config.DECEA_WMS, options=opcoes)
 
     def mostrar_fonte(self, chave: str) -> None:
-        rotulo = self.fontes.get(chave)
+        rotulo = self.rotulos_fonte.get(chave)
         if not rotulo:
             return
         caminho = espaco.arquivo_local(chave)
@@ -999,16 +999,16 @@ class CamadaAerodromos:
         self.mapa, self.prefs = mapa, prefs
         with mapa:
             self.camada = mapa.generic_layer(name='aerodromosLayer', args=[{}])
-        self.situacao: ui.label | None = None
+        self.rotulo_situacao: ui.label | None = None
 
     async def enviar(self) -> None:
         await self.mapa.initialized()   # antes disso o mapa ainda não existe no navegador
         lista = await aerodromos.obter() if self.prefs['aerodromos_ligado'] else []
         self.camada.run_method('setDados', [a.para_mapa() for a in lista])
-        if self.situacao:
+        if self.rotulo_situacao:
             erro = aerodromos.situacao.erro
-            self.situacao.set_text(erro or f'{len(lista)} aeródromos' if self.prefs['aerodromos_ligado'] else '')
-            self.situacao.classes(replace='text-caption ' + ('text-negative' if erro else ''))
+            self.rotulo_situacao.set_text(erro or f'{len(lista)} aeródromos' if self.prefs['aerodromos_ligado'] else '')
+            self.rotulo_situacao.classes(replace='text-caption ' + ('text-negative' if erro else ''))
 
 
 # ---------------------------------------------------------------------------

@@ -6,10 +6,19 @@ Quem decide os limites (o que é "recente", "atrasado", "velho") é este arquivo
 """
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from enum import StrEnum
 
 import config
 
-OK, ATENCAO, CRITICO, SEM_DADOS = 'ok', 'atencao', 'critico', 'sem_dados'
+
+class Nivel(StrEnum):
+    OK = 'ok'
+    ATENCAO = 'atencao'
+    CRITICO = 'critico'
+    SEM_DADOS = 'sem_dados'
+
+
+OK, ATENCAO, CRITICO, SEM_DADOS = Nivel     # apelidos curtos: saude.OK, saude.CRITICO...
 CORES = {OK: '#10b981', ATENCAO: '#fbbf24', CRITICO: '#ef4444', SEM_DADOS: '#64748b'}
 
 
@@ -17,7 +26,7 @@ CORES = {OK: '#10b981', ATENCAO: '#fbbf24', CRITICO: '#ef4444', SEM_DADOS: '#647
 class Indicador:
     fonte: str       # 'Radar', 'Raios'...
     texto: str       # curto, vai no topo: '4 min', 'rodada 00Z'
-    nivel: str       # OK, ATENCAO, CRITICO ou SEM_DADOS
+    nivel: Nivel
     detalhe: str     # dica ao passar o mouse
 
     @property
@@ -36,7 +45,7 @@ def idade_curta(segundos: float) -> str:
     return f'{segundos / 86400:.0f} d'
 
 
-def _nivel(segundos: float, atencao_s: float, critico_s: float) -> str:
+def _nivel(segundos: float, atencao_s: float, critico_s: float) -> Nivel:
     if segundos <= atencao_s:
         return OK
     return ATENCAO if segundos <= critico_s else CRITICO

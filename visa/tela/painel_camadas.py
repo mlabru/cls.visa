@@ -58,7 +58,7 @@ class PainelCamadas:
                 ui.label('Opacidade').classes('text-caption')
                 ui.slider(min=0.2, max=1, step=0.1).bind_value(p, 'satelite_opacidade') \
                     .on('change', sat.mudar_opacidade).classes('col')
-            sat.info = ui.label().classes('text-caption text-grey')
+            sat.rotulo_info = ui.label().classes('text-caption text-grey')
 
     def _radar(self) -> None:
         p, rad = self.prefs, self.c.radar
@@ -169,7 +169,7 @@ class PainelCamadas:
                 with ui.row().classes('w-full items-center no-wrap'):
                     ui.button(icon='chevron_left', on_click=lambda: ra.andar(-raios.PASSO_MIN)) \
                         .props('flat dense').tooltip(f'{raios.PASSO_MIN} min antes')
-                    ra.janela = ui.label().classes('text-caption col text-center')
+                    ra.rotulo_janela = ui.label().classes('text-caption col text-center')
                     ui.button(icon='chevron_right', on_click=lambda: ra.andar(raios.PASSO_MIN)) \
                         .props('flat dense').tooltip(f'{raios.PASSO_MIN} min depois')
                     ui.button('agora', on_click=ra.ao_vivo).props('flat dense size=sm')
@@ -184,12 +184,12 @@ class PainelCamadas:
             for linha in (('origem', 'resolucao'), ('tipo', 'rodada')):
                 with ui.row().classes('w-full no-wrap'):
                     for nivel in linha:
-                        sev.selects[nivel] = ui.select(
+                        sev.seletores[nivel] = ui.select(
                             {}, label=rotulos[nivel], on_change=lambda n=nivel: sev.mudou(n)) \
                             .props('dense').classes('col')
             with ui.row().classes('w-full items-center no-wrap'):
                 ui.button(icon='chevron_left', on_click=lambda: sev.andar(-1)).props('flat dense')
-                sev.selects['validade'] = ui.select(
+                sev.seletores['validade'] = ui.select(
                     {}, label='Validade', on_change=lambda: sev.mudou('validade')) \
                     .props('dense').classes('col')
                 ui.button(icon='chevron_right', on_click=lambda: sev.andar(1)).props('flat dense')
@@ -208,7 +208,7 @@ class PainelCamadas:
                 ui.slider(min=1, max=10, step=1).bind_value(estilo, 'raio_km') \
                     .on('change', sev.mudar_estilo).classes('col')
                 ui.label().bind_text_from(estilo, 'raio_km', lambda v: f'{v} km').classes('text-caption')
-            sev.situacao = ui.label().classes('text-caption')
+            sev.rotulo_situacao = ui.label().classes('text-caption')
 
     def _wifs(self) -> None:
         p, w = self.prefs, self.c.wifs
@@ -228,9 +228,9 @@ class PainelCamadas:
             with ui.row().classes('w-full no-wrap'):
                 ui.select(niveis, label='Nível', on_change=ve.trocar_nivel) \
                     .bind_value(p, 'vento_fl').props('dense').classes('col')
-                ve.horarios = ui.select(ve.opcoes_horario(), label='Horário', on_change=ve.aplicar) \
+                ve.seletor_horario = ui.select(ve.opcoes_horario(), label='Horário', on_change=ve.aplicar) \
                     .bind_value(p, 'vento_horario').props('dense').classes('col')
-            ve.aviso = ui.label()
+            ve.rotulo_aviso = ui.label()
 
     # ===== CONTEXTO AERONÁUTICO ====================================================
 
@@ -244,18 +244,18 @@ class PainelCamadas:
             ui.label('Faixa de nível (FL)').classes('text-caption')
             ui.range(min=0, max=600, step=10, on_change=lambda: ae.enviar(forcar=True)) \
                 .bind_value(p, 'aeronaves_fl').props('label')
-            ae.contador = ui.label().classes('text-caption')
+            ae.rotulo_contador = ui.label().classes('text-caption')
             ui.label('Clique numa aeronave e em "Ver / ocultar rota" para ver a trajetória.') \
                 .classes('text-caption text-grey')
             with ui.row().classes('w-full items-center no-wrap'):
-                ro.lista = ui.label().classes('text-caption col')
+                ro.rotulo_lista = ui.label().classes('text-caption col')
                 ro.botao_limpar = ui.button('limpar', on_click=ro.limpar).props('flat dense size=sm')
             ro.mostrar_lista()
 
     def _aerodromos(self) -> None:
         ad = self.c.aerodromos
         with cartao('Aeródromos', 'local_airport', self.prefs, 'aerodromos_ligado', ad.enviar):
-            ad.situacao = ui.label().classes('text-caption')
+            ad.rotulo_situacao = ui.label().classes('text-caption')
 
     def _espaco(self) -> None:
         p, es = self.prefs, self.c.espaco
@@ -264,7 +264,7 @@ class PainelCamadas:
                 chave = definicao.chave
                 ui.switch(definicao.titulo, on_change=lambda c=chave: es.aplicar(c)) \
                     .bind_value(p['espaco'], chave).props('dense')
-                es.fontes[chave] = ui.label().bind_visibility_from(p['espaco'], chave)   # "fonte: arquivo local..."
+                es.rotulos_fonte[chave] = ui.label().bind_visibility_from(p['espaco'], chave)   # "fonte: arquivo local..."
                 if not definicao.estilizavel:
                     continue
                 estilo = p['estilos'][chave]

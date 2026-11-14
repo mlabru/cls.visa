@@ -147,11 +147,11 @@ class PainelSonda:
             return
         if not r.radar_agora:
             return
-        dbz, sigla, quando = r.radar_agora
+        atual = r.radar_agora
         with ui.row().classes('items-center gap-2'):
-            ui.element('span').classes('sonda-cor').style(f'background: {radar.cor_dbz(dbz)}')
-            ui.label('sem eco' if dbz is None else f'{dbz} dBZ').classes('text-body2 text-weight-bold')
-            ui.label(f'{sigla} · {quando:%H:%MZ}').classes('legenda-texto')
+            ui.element('span').classes('sonda-cor').style(f'background: {radar.cor_dbz(atual.dbz)}')
+            ui.label('sem eco' if atual.dbz is None else f'{atual.dbz} dBZ').classes('text-body2 text-weight-bold')
+            ui.label(f'{atual.estacao} · {atual.quando:%H:%MZ}').classes('legenda-texto')
         # Histórico: uma barrinha por quadro, altura e cor pelo dBZ
         with ui.row().classes('sonda-barras items-end no-wrap gap-0'):
             for quando_q, dbz_q in r.radar_historico:
@@ -179,8 +179,8 @@ class PainelSonda:
         if r.raios.mais_perto:
             d, minutos = r.raios.mais_perto
             ui.label(f'mais próxima a {d:.0f} km, ativa há {minutos} min').classes('legenda-texto')
-        if r.raios.novas_20km:
-            ui.label(f'{r.raios.novas_20km} célula(s) nova(s) (< {redemet.CELULA_NOVA_MIN} min) até '
+        if r.raios.novas:
+            ui.label(f'{r.raios.novas} célula(s) nova(s) (< {redemet.CELULA_NOVA_MIN} min) até '
                      f'{sonda.RAIO_CELULAS_NOVAS_KM} km: convecção começando ou crescendo') \
                 .classes('text-caption text-red-4')
 
@@ -219,11 +219,11 @@ class PainelSonda:
         if not r.aerodromo:
             ui.label('lista de aeródromos ainda não carregada (ligue a camada)').classes('legenda-texto')
             return
-        a, d = r.aerodromo
+        a = r.aerodromo.aerodromo
         with ui.row().classes('items-center gap-2 no-wrap'):
             ui.element('span').classes('sonda-cor').style(f'background: {a.cor}; border-radius: 50%')
             ui.label(f'{a.icao} – {a.nome}').classes('text-body2')
-        ui.label(f'a {d:.0f} km').classes('legenda-texto')
+        ui.label(f'a {r.aerodromo.km:.0f} km').classes('legenda-texto')
         if a.texto:
             ui.label(a.texto).classes('sonda-boletim')
 

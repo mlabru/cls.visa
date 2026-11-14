@@ -28,7 +28,7 @@ import config
 log = logging.getLogger('aeronaves')
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class Aeronave:
     chave: str
     indicativo: str

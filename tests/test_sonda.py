@@ -36,7 +36,7 @@ def test_raios_perto():
     quadro = redemet.QuadroRaios(quando, ((-23.45, -46.45, 5), (-23.55, -46.55, 40), (-25.0, -46.5, 0)))
     r = sonda.raios_perto(quadro, -23.43, -46.47)
     assert r.contagem == {10: 1, 20: 2, 50: 2}
-    assert r.novas_20km == 1 and r.mais_perto[1] == 5 and r.mais_perto[0] < 5
+    assert r.novas == 1 and r.mais_perto[1] == 5 and r.mais_perto[0] < 5
 
 
 def test_area_severa():

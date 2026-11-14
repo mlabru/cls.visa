@@ -13,6 +13,7 @@ import asyncio
 import math
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import NamedTuple
 
 import numpy as np
 
@@ -86,7 +87,7 @@ def fl_da_pressao(pa: int) -> int:
 class RaiosPerto:
     """Células com raios em volta de um ponto (resultado de `raios_perto`)."""
     contagem: dict[int, int]                    # distância (km) -> células até essa distância
-    novas_20km: int                             # células novas a até RAIO_CELULAS_NOVAS_KM
+    novas: int                                  # células novas a até RAIO_CELULAS_NOVAS_KM
     mais_perto: tuple[float, int] | None        # (distância em km, minutos ativa) da mais próxima
 
 
@@ -136,11 +137,22 @@ def em_area_severa(feicoes: list[dict], tipo: str, raio_km: float, lat: float, l
 # Resultado
 # ---------------------------------------------------------------------------
 
+class RadarAgora(NamedTuple):
+    dbz: int | None              # None = sem eco
+    estacao: str                 # sigla da estação de maior dBZ
+    quando: datetime             # horário do quadro
+
+
+class AerodromoPerto(NamedTuple):
+    aerodromo: aerodromos.Aerodromo
+    km: float
+
+
 @dataclass
 class Resultado:
     lat: float
     lon: float
-    radar_agora: tuple[int | None, str, datetime | None] | None = None   # (dBZ, estação, horário)
+    radar_agora: RadarAgora | None = None
     radar_historico: list[tuple[datetime, int | None]] = field(default_factory=list)
     radar_erro: str = ''
     raios: RaiosPerto | None = None
@@ -150,7 +162,7 @@ class Resultado:
     severo_validade: str | None = None
     vento: list[tuple[int, int, int]] = field(default_factory=list)       # (FL, direção, kt)
     vento_referencia: datetime | None = None
-    aerodromo: tuple | None = None        # (Aerodromo, distância em km)
+    aerodromo: AerodromoPerto | None = None
 
     @property
     def titulo(self) -> str:
@@ -193,7 +205,7 @@ async def _radar(r: Resultado, produto: str) -> None:
     r.radar_historico = [(q.quando, v[0]) for q, v in zip(quadros, valores)]
     if quadros:
         dbz, sigla = valores[-1]
-        r.radar_agora = (dbz, sigla, quadros[-1].quando)
+        r.radar_agora = RadarAgora(dbz, sigla, quadros[-1].quando)
 
 
 async def _raios(r: Resultado) -> None:
@@ -223,7 +235,7 @@ def _aerodromo(r: Resultado) -> None:
     lista = aerodromos.situacao.aerodromos
     if lista:
         a = min(lista, key=lambda a: geo.distancia_km(r.lat, r.lon, a.lat, a.lon))
-        r.aerodromo = (a, geo.distancia_km(r.lat, r.lon, a.lat, a.lon))
+        r.aerodromo = AerodromoPerto(a, geo.distancia_km(r.lat, r.lon, a.lat, a.lon))
 
 
 async def sondar(lat: float, lon: float, produto_radar: str, severo_feicoes: list[dict] | None = None,

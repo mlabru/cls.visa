@@ -32,7 +32,7 @@ LEGENDA = [('#10b981', 'boas condições'), ('#fbbf24', 'atenção'), ('#ef4444'
            ('#3b82f6', 'outro'), (COR_SEM_DADOS, 'sem METAR'), ('#ffffff', 'borda branca: há aviso')]
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class Aerodromo:
     icao: str
     nome: str

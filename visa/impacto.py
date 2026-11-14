@@ -20,6 +20,7 @@ import math
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import NamedTuple
 
 import numpy as np
 
@@ -54,7 +55,7 @@ ORDEM = {ALTO: 0, MEDIO: 1, BAIXO: 2}
 STATUS_METAR = {'r': 'METAR: restrição', 'y': 'METAR: atenção'}
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Impacto:
     tipo: str                    # 'aerodromo' ou 'tma'
     ident: str                   # SBGR, SBSP...
@@ -86,7 +87,7 @@ situacao = Situacao()
 
 def classificar_aerodromo(dbz: int | None, raios: sonda.RaiosPerto, status: str) -> tuple[str | None, list[str], float]:
     """(nível ou None, motivos, pontos). `pontos` só ordena os itens de um mesmo nível."""
-    c, novas, perto = raios.contagem, raios.novas_20km, raios.mais_perto
+    c, novas, perto = raios.contagem, raios.novas, raios.mais_perto
     cor_metar, aviso = (status or ' ')[0], status.endswith('w')
     motivos = []
     if perto:
@@ -218,11 +219,17 @@ def dbz_max_perto(campos: list[tuple[redemet.Imagem, np.ndarray]], lat: float, l
 # TMAs (do arquivo local)
 # ---------------------------------------------------------------------------
 
-_tmas: tuple[float, list] | None = None
+class TMA(NamedTuple):
+    sigla: str                   # SBXP...
+    nome: str
+    aneis: list                  # anéis externos dos polígonos: [[lon, lat], ...]
 
 
-def agrupar_tmas(features: list[dict]) -> list[tuple[str, str, list]]:
-    """(sigla, nome, anéis) por TMA. As partes de uma TMA (SBXP, SBXP_01...) viram uma só."""
+_tmas: tuple[float, list[TMA]] | None = None
+
+
+def agrupar_tmas(features: list[dict]) -> list[TMA]:
+    """Uma TMA por sigla. As partes de uma TMA (SBXP, SBXP_01...) viram uma só."""
     grupos: dict[str, tuple[str, list]] = {}
     for f in features:
         g, p = f.get('geometry') or {}, f.get('properties') or {}
@@ -240,10 +247,10 @@ def agrupar_tmas(features: list[dict]) -> list[tuple[str, str, list]]:
                 grupos[sigla] = (nome, grupos[sigla][1])
         else:
             grupos[sigla] = (nome, list(aneis))
-    return [(sigla, nome, aneis) for sigla, (nome, aneis) in grupos.items()]
+    return [TMA(sigla, nome, aneis) for sigla, (nome, aneis) in grupos.items()]
 
 
-def carregar_tmas() -> list[tuple[str, str, list]]:
+def carregar_tmas() -> list[TMA]:
     """TMAs do arquivo local (relê se o arquivo mudar)."""
     global _tmas
     caminho = espaco.arquivo_local('tma')
@@ -339,11 +346,12 @@ def celulas_de_raios(quadro: redemet.QuadroRaios) -> dict[tuple[int, int], int]:
 
 def _nucleos(campos: list, campos_antes: list, radar_quando, radar_antes_quando,
              raios: redemet.QuadroRaios | None, raios_antes: redemet.QuadroRaios | None) -> None:
+    quadro = previsao.QuadroCelulas
     previsao.atualizar_nucleos(
-        (radar_quando, celulas_fortes(campos)) if campos else None,
-        (radar_antes_quando, celulas_fortes(campos_antes)) if campos_antes else None,
-        (raios.quando, celulas_de_raios(raios)) if raios else None,
-        (raios_antes.quando, celulas_de_raios(raios_antes)) if raios_antes else None)
+        quadro(radar_quando, celulas_fortes(campos)) if campos else None,
+        quadro(radar_antes_quando, celulas_fortes(campos_antes)) if campos_antes else None,
+        quadro(raios.quando, celulas_de_raios(raios)) if raios else None,
+        quadro(raios_antes.quando, celulas_de_raios(raios_antes)) if raios_antes else None)
 
 
 def _calcular(campos: list, quadro_raios: redemet.QuadroRaios | None) -> tuple[list, list, dict]:
@@ -356,8 +364,8 @@ def _calcular(campos: list, quadro_raios: redemet.QuadroRaios | None) -> tuple[l
         nivel, motivos, pontos = classificar_aerodromo(dbz, perto, a.status)
         if nivel:
             lista_a.append(Impacto('aerodromo', a.icao, a.nome, a.lat, a.lon, nivel, tuple(motivos), pontos))
-    lista_t = [i for sigla, nome, aneis in carregar_tmas()
-               if (i := avaliar_tma(sigla, nome, aneis, campos, quadro_raios.celulas))]
+    lista_t = [i for t in carregar_tmas()
+               if (i := avaliar_tma(t.sigla, t.nome, t.aneis, campos, quadro_raios.celulas))]
     return ordenar(lista_a), ordenar(lista_t), mapa_de_perigo(campos, quadro_raios.celulas)
 
 
