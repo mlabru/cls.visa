@@ -81,3 +81,10 @@ def test_mapa_de_perigo():
     assert perigo[impacto.chave_celula(-20.15, -40.05)] == 'raios a menos de 10 km'
     assert perigo[impacto.chave_celula(-23.5, -46.5)] == f'eco ≥ {impacto.ECO_FORTE_DBZ} dBZ'
     assert impacto.chave_celula(-20.3, -40.3) not in perigo
+
+
+def test_celulas_fortes_ignoram_pixel_isolado():
+    fortes = impacto.celulas_fortes([_campo()])
+    assert fortes == {impacto.chave_celula(-23.5, -46.5): 50}       # o pixel de 70 dBZ no canto não entra
+    quadro = redemet.QuadroRaios(None, ((-20.05, -40.05, 3),))
+    assert impacto.celulas_de_raios(quadro) == {impacto.chave_celula(-20.05, -40.05): 3}

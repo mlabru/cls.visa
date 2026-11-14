@@ -1,6 +1,7 @@
 """
 A gaveta da direita, com duas abas:
   FAB.ia    (impacto) aeródromos, TMAs e tráfego afetados agora (calculado no servidor, impacto.py)
+            e os conflitos previstos de aeronaves com núcleos de tempestade (previsao.py)
   Sonda     tudo sobre um ponto do mapa (sonda.py)
 
 Gaveta só abre, fecha e troca de aba; cada painel desenha o seu conteúdo.
@@ -10,6 +11,7 @@ from nicegui import background_tasks, ui
 import aeronaves
 import camadas
 import impacto
+import previsao
 import radar
 import redemet
 import severo
@@ -236,6 +238,7 @@ class PainelImpacto:
     REDESENHO_S = 15
     MAX_AERODROMOS = 30
     MAX_AERONAVES = 60
+    MAX_CONFLITOS = 30
 
     def __init__(self, gaveta: Gaveta, area: AreaDoMapa, prefs: dict,
                  camadas_: camadas.CamadasDaPagina, painel_sonda: PainelSonda) -> None:
@@ -282,6 +285,7 @@ class PainelImpacto:
             self._resumo(s)
             self._aerodromos(s)
             self._tmas(s)
+            self._conflitos()
             self._trafego()
 
     @staticmethod
@@ -320,6 +324,39 @@ class PainelImpacto:
             ui.label('nenhuma TMA afetada (ou sem o arquivo de TMAs)').classes('legenda-texto')
         for item in s.tmas:
             self._item(item, [])
+
+    def _conflitos(self) -> None:
+        """FAB.ia: aeronaves em rota que vão cruzar um núcleo nos próximos 30 min (previsao.py)."""
+        s = previsao.situacao
+        secao(f'Conflitos previstos ({len(s.conflitos)})', 'route')
+        ui.label(f'projeção em linha reta (rumo e velocidade atuais), até {previsao.HORIZONTE_MIN} min; '
+                 f'só aeronaves em rota (FL{previsao.FL_MIN:03d}+); linhas tracejadas no mapa') \
+            .classes('legenda-texto')
+        if s.calculado is None:
+            ui.label('aguardando o primeiro cálculo').classes('legenda-texto')
+            return
+        if not s.conflitos:
+            ui.label('nenhum conflito previsto').classes('legenda-texto')
+        for c in s.conflitos[:self.MAX_CONFLITOS]:
+            cor = previsao.COR_CONFIANCA[c.confianca]
+            with ui.element('div').classes('impacto-item w-full').style(f'border-left-color: {cor}') \
+                    .on('click', lambda c=c: self._ir_para_conflito(c)):
+                with ui.row().classes('items-baseline no-wrap gap-2'):
+                    ui.label(c.indicativo).classes('text-body2 text-weight-bold')
+                    ui.label('—' if c.fl is None else f'FL{c.fl:03d}').classes('legenda-texto')
+                    ui.label(f'em ~{c.minutos} min').classes('text-caption').style(f'color: {cor}')
+                ui.label(f'{c.nucleo.descricao()}; {previsao.TEXTO_CONFIANCA[c.confianca]}') \
+                    .classes('impacto-motivos')
+        r = previsao.resumir(s.placar)
+        if r['alertas'] or r['nao_previstos']:
+            ui.label(f"desde {s.desde:%d/%m %H:%MZ}: {r['alertas']} alertas, {r['acertos']} confirmados, "
+                     f"{r['falsos']} falsos, {r['nao_previstos']} entradas não previstas") \
+                .classes('legenda-texto q-mt-xs')
+
+    def _ir_para_conflito(self, c: previsao.Conflito) -> None:
+        """Clique: mostra a aeronave e o ponto de encontro juntos."""
+        self.mapa.set_center(((c.lat0 + c.lat) / 2, (c.lon0 + c.lon) / 2))
+        self.mapa.set_zoom(8)
 
     def _trafego(self) -> None:
         em_alerta = [(a.indicativo, a.nivel_voo, motivo) for a in aeronaves.trafego.aeronaves.values()

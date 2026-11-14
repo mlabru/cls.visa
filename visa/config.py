@@ -88,3 +88,7 @@ SATELITE_ATUALIZA_S = 300       # o satélite tem imagem nova a cada 10 min
 DECEA_WMS = 'https://geoaisweb.decea.mil.br/geoserver/ICA/wms'
 # GeoJSONs de espaço aéreo baixados do WFS (um por camada: <chave>.geojson). Veja espaco.py.
 ESPACO_DIR = Path(os.environ.get('VISA_ESPACO_DIR', RAIZ / 'dados' / 'espaco'))
+
+# --- FAB.ia: registro dos conflitos previstos e do que aconteceu depois (previsao.py) ----------
+# Um arquivo JSON Lines por dia (UTC). É a base para medir acertos e alarmes falsos.
+PREVISAO_DIR = Path(os.environ.get('VISA_PREVISAO_DIR', RAIZ / 'logs' / 'previsao'))

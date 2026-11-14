@@ -25,6 +25,7 @@ import desenho
 import espaco
 import geo
 import impacto
+import previsao
 import radar
 import raios
 import redemet
@@ -874,6 +875,46 @@ class CamadaAeronaves:
         self.camada.run_method('setOpcoes', {'rotulos': self.prefs['aeronaves_rotulos']})
 
 
+class CamadaConflitos:
+    """FAB.ia: linha tracejada de cada aeronave até onde ela encontra o núcleo, e um círculo ali.
+
+    Segue o filtro da camada de tráfego (ligada, prefixos, faixa de níveis): linha de uma
+    aeronave escondida confundiria. A linha começa na posição ATUAL da aeronave (redesenho a
+    cada REDESENHO_S), não na do cálculo, que tem até 1 min.
+    """
+
+    REDESENHO_S = 15
+    MAX = 30
+
+    def __init__(self, mapa: ui.leaflet, camada_aeronaves: CamadaAeronaves) -> None:
+        self.mapa, self.aeronaves = mapa, camada_aeronaves
+        self.camadas: list = []
+
+    def desenhar(self) -> None:
+        for camada in self.camadas:
+            self.mapa.remove_layer(camada)
+        self.camadas = []
+        p = self.aeronaves.prefs
+        if not p['aeronaves_ligado'] or not previsao.situacao.conflitos:
+            return
+        faixa = p['aeronaves_fl']
+        visiveis = {a['indicativo'] for a in aeronaves.filtrar(self.aeronaves.prefixos(), faixa['min'], faixa['max'])}
+        with self.mapa:
+            for c in [c for c in previsao.situacao.conflitos if c.indicativo in visiveis][:self.MAX]:
+                agora = aeronaves.trafego.aeronaves.get(c.chave)
+                inicio = [agora.lat, agora.lon] if agora else [c.lat0, c.lon0]
+                cor = previsao.COR_CONFIANCA[c.confianca]
+                linha = self.mapa.generic_layer(name='polyline', args=[[inicio, [c.lat, c.lon]], {
+                    'color': cor, 'weight': 2, 'opacity': 0.9, 'dashArray': '4 6'}])
+                ponto = self.mapa.generic_layer(name='circleMarker', args=[[c.lat, c.lon], {
+                    'radius': 7, 'color': cor, 'weight': 2, 'fill': True, 'fillOpacity': 0.15}])
+                ponto.run_method('bindPopup', desenho.balao(
+                    f'{c.indicativo} em ~{c.minutos} min',
+                    [(c.nucleo.descricao(), None), (previsao.TEXTO_CONFIANCA[c.confianca], cor)],
+                    ('FAB.ia: projeção em linha reta; consultivo', '#94a3b8')))
+                self.camadas += [linha, ponto]
+
+
 class CamadasEspaco:
     """Aerovias, cartas, FIR, TMA: vetores do arquivo local ou, na falta dele, imagens do DECEA."""
 
@@ -985,6 +1026,7 @@ class CamadasDaPagina:
         self.espaco = CamadasEspaco(mapa, prefs)
         self.aerodromos = CamadaAerodromos(mapa, prefs)
         self.aeronaves = CamadaAeronaves(mapa, prefs)
+        self.conflitos = CamadaConflitos(mapa, self.aeronaves)
         self.raios = CamadaRaios(mapa, prefs)
         self.wifs = CamadasWifs(mapa, prefs)
         self.severo = CamadaSevero(mapa, prefs)
@@ -1013,6 +1055,7 @@ class CamadasDaPagina:
     def ligar_relogios(self) -> None:
         """Atualizações periódicas de cada camada (os intervalos estão em config.py e nos módulos)."""
         ui.timer(config.AERONAVE_ENVIO_S, self.aeronaves.enviar)
+        ui.timer(CamadaConflitos.REDESENHO_S, self.conflitos.desenhar)
         ui.timer(config.RADAR_ATUALIZA_S, self.radar.atualizar_horario)
         ui.timer(config.RADAR_ATUALIZA_S, self.raios.no_relogio)
         ui.timer(config.RADAR_ATUALIZA_S, self.radar.consultar_status)

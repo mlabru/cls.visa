@@ -7,7 +7,9 @@ quadro de radar (MAXCAPPI, API) e de raios (stsc, API):
     status do METAR;
   - TMAs: células com raios dentro da TMA e dBZ máximo dentro dela;
   - tráfego: as células de 0,1° "perigosas" (com raios por perto ou eco forte), para
-    destacar as aeronaves que estão nelas.
+    destacar as aeronaves que estão nelas;
+  - FAB.ia, conflitos previstos (previsao.py): os núcleos de eco forte e de raios, e quais
+    aeronaves em rota vão cruzá-los nos próximos 30 min.
 
 Os níveis (alto, médio, baixo) e os motivos ficam em funções puras, fáceis de ajustar.
 """
@@ -17,13 +19,15 @@ import logging
 import math
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 
 import numpy as np
 
 import aerodromos
+import aeronaves
 import espaco
 import geo
+import previsao
 import radar
 import redemet
 import sonda
@@ -311,6 +315,36 @@ def mapa_de_perigo(campos: list, celulas: tuple) -> dict[tuple[int, int], str]:
     return perigo
 
 
+def celulas_fortes(campos: list) -> dict[tuple[int, int], int]:
+    """Células de 0,1° com eco forte: chave -> dBZ (robusto). Para os núcleos da previsão.
+
+    Mais exigente que `mapa_de_perigo`: a célula precisa de PIXELS_MINIMOS pixels fortes, para
+    um pixel isolado não virar um núcleo que "anda" e gera conflitos falsos.
+    """
+    pixels: dict[tuple[int, int], list[float]] = {}
+    for imagem, campo in campos:
+        li, co = np.nonzero(np.nan_to_num(campo) >= ECO_FORTE_DBZ)
+        if li.size:
+            lats, lons = coordenadas(imagem, campo.shape)
+            for la, lo, v in zip(lats[li], lons[co], campo[li, co]):
+                pixels.setdefault(chave_celula(la, lo), []).append(float(v))
+    return {k: dbz for k, valores in pixels.items() if (dbz := dbz_robusto(np.array(valores))) is not None}
+
+
+def celulas_de_raios(quadro: redemet.QuadroRaios) -> dict[tuple[int, int], int]:
+    """Células com raios do quadro: chave -> minutos ativa."""
+    return {chave_celula(la, lo): m for la, lo, m in quadro.celulas}
+
+
+def _nucleos(campos: list, campos_antes: list, radar_quando, radar_antes_quando,
+             raios: redemet.QuadroRaios | None, raios_antes: redemet.QuadroRaios | None) -> None:
+    previsao.atualizar_nucleos(
+        (radar_quando, celulas_fortes(campos)) if campos else None,
+        (radar_antes_quando, celulas_fortes(campos_antes)) if campos_antes else None,
+        (raios.quando, celulas_de_raios(raios)) if raios else None,
+        (raios_antes.quando, celulas_de_raios(raios_antes)) if raios_antes else None)
+
+
 def _calcular(campos: list, quadro_raios: redemet.QuadroRaios | None) -> tuple[list, list, dict]:
     vazio = redemet.QuadroRaios(datetime.min, ())
     quadro_raios = quadro_raios or vazio
@@ -354,8 +388,26 @@ async def atualizar() -> None:
             empacotada, forma = _eco_cache[imagem.caminho]
             mascaras.setdefault(imagem.codigo, []).append(
                 np.unpackbits(empacotada)[:forma[0] * forma[1]].reshape(forma).astype(bool))
+    campos = await _campos(ultimo_radar, mascaras) if ultimo_radar else []
+    # Quadros anteriores (10 a 40 min antes): só para medir o movimento dos núcleos
+    radar_antes = previsao.anterior(quadros, ultimo_radar) if ultimo_radar else None
+    campos_antes = await _campos(radar_antes, mascaras) if radar_antes else []
+    raios_antes = previsao.anterior(raios, ultimo_raios) if ultimo_raios else None
+    inicio = time.monotonic()
+    lista_a, lista_t, perigo = await asyncio.to_thread(_calcular, campos, ultimo_raios)
+    await asyncio.to_thread(_nucleos, campos, campos_antes, radar_quando,
+                            radar_antes.quando if radar_antes else None, ultimo_raios, raios_antes)
+    log.info('impacto: %d aeródromos, %d TMAs, %d células de perigo (%.1f s)',
+             len(lista_a), len(lista_t), len(perigo), time.monotonic() - inicio)
+    situacao.aerodromos, situacao.tmas, situacao.perigo = lista_a, lista_t, perigo
+    situacao.radar_quando, situacao.raios_quando, situacao.erro = radar_quando, raios_quando, ''
+    situacao.versao += 1
+
+
+async def _campos(quadro: redemet.QuadroRadar, mascaras: dict) -> list:
+    """(imagem, dBZ por pixel) de cada estação do quadro, sem a antena e sem o eco de solo."""
     campos = []
-    for imagem in (ultimo_radar.imagens if ultimo_radar else ()):
+    for imagem in quadro.imagens:
         bruta = await redemet.imagem_bruta(imagem)
         if bruta is None:
             continue
@@ -364,13 +416,17 @@ async def atualizar() -> None:
         if fixo is not None and fixo.shape == campo.shape:
             campo[fixo] = np.nan
         campos.append((imagem, campo))
-    inicio = time.monotonic()
-    lista_a, lista_t, perigo = await asyncio.to_thread(_calcular, campos, ultimo_raios)
-    log.info('impacto: %d aeródromos, %d TMAs, %d células de perigo (%.1f s)',
-             len(lista_a), len(lista_t), len(perigo), time.monotonic() - inicio)
-    situacao.aerodromos, situacao.tmas, situacao.perigo = lista_a, lista_t, perigo
-    situacao.radar_quando, situacao.raios_quando, situacao.erro = radar_quando, raios_quando, ''
-    situacao.versao += 1
+    return campos
+
+
+async def prever() -> None:
+    """FAB.ia: conflitos previstos, a cada minuto (as aeronaves andam mesmo sem quadro novo)."""
+    if not situacao.versao:
+        return                    # sem mapa de perigo ainda: o verificador contaria entradas falsas
+    # Cópia da lista aqui, no laço do servidor: o Pusher altera o dicionário enquanto a conta roda
+    elegiveis = [a for a in list(aeronaves.trafego.aeronaves.values()) if previsao.em_rota(a)]
+    em_perigo = {a.chave for a in elegiveis if alerta_da_aeronave(a.lat, a.lon)}
+    await asyncio.to_thread(previsao.ciclo, datetime.now(UTC), elegiveis, em_perigo)
 
 
 async def vigiar() -> None:
@@ -378,6 +434,7 @@ async def vigiar() -> None:
     while True:
         try:
             await atualizar()
+            await prever()
         except Exception:                      # nunca derruba a tarefa
             log.exception('impacto: falha no cálculo')
         await asyncio.sleep(ATUALIZA_S)

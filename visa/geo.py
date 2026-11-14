@@ -76,6 +76,26 @@ def dentro_vetor(lats: np.ndarray, lons: np.ndarray, anel: list) -> np.ndarray:
     return resultado
 
 
+def deslocar(lat: float, lon: float, rumo: float, km):
+    """Ponto a `km` de distância no `rumo` (graus, 0 = norte, sentido horário).
+
+    Conta no plano local (como `graus_por_km`): erro desprezível até algumas centenas de km,
+    que é o alcance da previsão de conflitos (30 min de voo). `km` pode ser um array numpy:
+    devolve então os arrays de latitudes e longitudes.
+    """
+    r = math.radians(rumo)
+    dlat = np.multiply(km, math.cos(r)) / KM_POR_GRAU
+    dlon = np.multiply(km, math.sin(r)) / (KM_POR_GRAU * max(math.cos(math.radians(lat)), 0.01))
+    return lat + dlat, lon + dlon
+
+
+def distancias_km(lat: float, lon: float, lats: np.ndarray, lons: np.ndarray) -> np.ndarray:
+    """Distância (plano local) do ponto a muitos pontos de uma vez; mesma precisão de `deslocar`."""
+    dy = (np.asarray(lats) - lat) * KM_POR_GRAU
+    dx = (np.asarray(lons) - lon) * KM_POR_GRAU * max(math.cos(math.radians(lat)), 0.01)
+    return np.hypot(dx, dy)
+
+
 def limites(pontos: list[list[float]]) -> list[list[float]] | None:
     """[[sul, oeste], [norte, leste]] de uma lista de pontos [lat, lon] (formato do Leaflet)."""
     if not pontos:

@@ -13,6 +13,7 @@
 #   log         acompanha o log (Ctrl+C para sair)
 #   testar      roda os testes (argumentos extras vão para o pytest)
 #   verificar   ruff + testes: rodar antes de cada commit
+#   avaliar     FAB.ia: acertos e alarmes falsos dos conflitos previstos [AAAA-MM-DD ...]
 #
 # A porta vem de VISA_PORTA (ambiente ou .env); padrão 8090.
 
@@ -115,13 +116,15 @@ verificar() {
     echo "== testes"; "$PY" -m pytest
 }
 
-ajuda() { sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+avaliar() { exige_venv; exige_env; "$PY" visa/previsao.py "$@"; }
+
+ajuda() { sed -n '2,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 # --- despacho ----------------------------------------------------------------
 
 comando="${1:-ajuda}"; shift || true
 case "$comando" in
-    instalar|rodar|iniciar|parar|estado|log|testar|verificar|ajuda) "$comando" "$@" ;;
+    instalar|rodar|iniciar|parar|estado|log|testar|verificar|avaliar|ajuda) "$comando" "$@" ;;
     reiniciar) parar; iniciar ;;
     -h|--help) ajuda ;;
     *) ajuda; erro "comando desconhecido: $comando" ;;
