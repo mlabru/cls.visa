@@ -11,7 +11,7 @@ PEDIDO = {'request': 'GetMap', 'layers': 'redemet:maxcappi_400km'}
 
 
 def _png(pixels: list[list[tuple]]) -> bytes:
-    img = Image.fromarray(np.array(pixels, dtype=np.uint8), 'RGBA')
+    img = Image.fromarray(np.array(pixels, dtype=np.uint8))
     saida = io.BytesIO()
     img.save(saida, 'PNG')
     return saida.getvalue()

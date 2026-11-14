@@ -373,7 +373,7 @@ def desenhar_raios(quadro: QuadroRaios) -> bytes:
         y1 = round((y_norte - _mercator_y(la - meia)) * px_por_unidade)
         img[y0:max(y1, y0 + 1), x0:max(x1, x0 + 1)] = classe_raio(minutos) + 1
     paleta = [0, 0, 0] + [int(c[i:i + 2], 16) for _, c, _ in RAIOS_CLASSES for i in (1, 3, 5)]
-    imagem = Image.fromarray(img, 'P')
+    imagem = Image.fromarray(img)                 # array 2D uint8: modo L; putpalette o torna P
     imagem.putpalette(paleta)
     saida = io.BytesIO()
     imagem.save(saida, 'PNG', transparency=0, optimize=True)
@@ -427,14 +427,14 @@ def _preparar(png: bytes, caminho: str, sul: float, norte: float, dbz_min: int) 
     saida = io.BytesIO()
     if caminho.startswith('satelite/'):
         # Satélite é foto, sem transparência: WebP fica ~3x menor que PNG (450 KB x 1,25 MB)
-        Image.fromarray(img, 'RGBA').convert('RGB').save(saida, 'WEBP', quality=85)
+        Image.fromarray(img).convert('RGB').save(saida, 'WEBP', quality=85)
         return saida.getvalue(), 'image/webp'
     # Radar: PNG sem perdas, cores exatas (o filtro de dBZ e a sonda dependem delas).
     # O filtro age na matriz, antes de codificar: um PNG só, em vez de codificar, decodificar
     # e codificar de novo.
     if dbz_min:
         img = radar.filtrar_rgba(img, dbz_min)
-    Image.fromarray(img, 'RGBA').save(saida, 'PNG', compress_level=1)
+    Image.fromarray(img).save(saida, 'PNG', compress_level=1)
     return saida.getvalue(), 'image/png'
 
 

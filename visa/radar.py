@@ -183,7 +183,7 @@ def filtrar_png(png: bytes, limiar_dbz: int) -> bytes:
     """O mesmo filtro, de PNG para PNG (tiles do GeoServer, que já chegam codificados)."""
     img = filtrar_rgba(np.array(Image.open(io.BytesIO(png)).convert('RGBA')), limiar_dbz)
     saida = io.BytesIO()
-    Image.fromarray(img, 'RGBA').save(saida, 'PNG', compress_level=1)
+    Image.fromarray(img).save(saida, 'PNG', compress_level=1)
     return saida.getvalue()
 
 
