@@ -1,0 +1,37 @@
+/* Balão (tooltip) dos aeródromos */
+.leaflet-tooltip.aerodromo-balao {
+  background: #ffffff;
+  color: #334155;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.15);
+  padding: 10px 14px;
+  min-width: 400px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.leaflet-tooltip.aerodromo-balao::before {
+  border-right-color: #ffffff;
+  border-left-color: #ffffff;
+}
+.aerodromo-titulo {
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 700;
+}
+.aerodromo-texto {
+  margin-top: 6px;
+  white-space: pre-line;   /* respeita as quebras de linha do METAR/TAF */
+}
+
+/* Botão "Ver / ocultar rota" no popup da aeronave */
+.aeronave-botao-rota {
+  margin-top: 8px;
+  padding: 4px 10px;
+  background: #6366f1;
+  color: #ffffff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+}

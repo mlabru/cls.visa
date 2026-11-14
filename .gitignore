@@ -1,0 +1,34 @@
+# pastas locais (backup, documentação em repositório próprio, ferramentas)
+.bkp/
+.doc/
+.claude/
+.gpt/
+.2do/
+.old/
+.new/
+logs/
+tst_env/
+
+# ambiente Python e caches
+.venv
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+
+# sessões do NiceGUI
+.nicegui/
+
+# credenciais (modelo em .env.exemplo)
+.env
+
+*~
+*.bak
+*.err
+*.log
+
+# GeoJSONs do DECEA: dado público, ~4 MB, muda a cada ciclo AIRAC
+dados/espaco/*.geojson
+dados/espaco/.bkp/
+
+# vento (JSON do WIFS, ~77 MB, muda a cada rodada); caminho em VISA_VENTO_DIR
+wifs/ventos/
