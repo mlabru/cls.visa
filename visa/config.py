@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlsplit
 from dotenv import load_dotenv
 
 AQUI = Path(__file__).resolve().parent   # pasta do código (visa/)
-RAIZ = AQUI.parent                        # pasta do projeto: .env, static/, dados/, wifs/
+RAIZ = AQUI.parent                        # pasta do projeto: .env, static/, data/, wifs/
 load_dotenv(RAIZ / '.env')
 
 
@@ -91,7 +91,7 @@ SATELITE_ATUALIZA_S = 300       # o satélite tem imagem nova a cada 10 min
 # São dados públicos: nenhuma credencial envolvida.
 DECEA_WMS = 'https://geoaisweb.decea.mil.br/geoserver/ICA/wms'
 # GeoJSONs de espaço aéreo baixados do WFS (um por camada: <chave>.geojson). Veja espaco.py.
-ESPACO_DIR = Path(os.environ.get('VISA_ESPACO_DIR', RAIZ / 'dados' / 'espaco'))
+ESPACO_DIR = Path(os.environ.get('VISA_ESPACO_DIR', RAIZ / 'data' / 'espaco'))
 
 # --- FAB.ia: registro dos conflitos previstos e do que aconteceu depois (previsao.py) ----------
 # Um arquivo JSON Lines por dia (UTC). É a base para medir acertos e alarmes falsos.

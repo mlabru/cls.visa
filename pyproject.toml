@@ -8,15 +8,15 @@ description = "Visualizador meteorológico para quem acompanha o tráfego aéreo
 requires-python = ">=3.13"
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["test"]
 pythonpath = ["visa"]          # os módulos usam imports planos: `import config`
 addopts = "-q"
 
 [tool.ruff]
 line-length = 120
 target-version = "py313"
-src = ["visa", "tests"]        # para o ruff saber que `import config` é do projeto
-extend-exclude = [".bkp", ".doc", "dados", "wifs", "static"]
+src = ["visa", "test"]        # para o ruff saber que `import config` é do projeto
+extend-exclude = [".bkp", ".doc", "data", "wifs", "static"]
 
 [tool.ruff.format]
 quote-style = "single"         # o código usa aspas simples

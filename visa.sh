@@ -108,8 +108,8 @@ estado() {
     [[ -f .env ]] && echo ".env:          ok" || echo ".env:          AUSENTE"
     local ventos; ventos="$(find wifs/ventos -name '*.json' 2>/dev/null | wc -l)"
     echo "vento:         $ventos arquivos em wifs/ventos/"
-    local espaco; espaco="$(find dados/espaco -maxdepth 1 -name '*.geojson' 2>/dev/null | wc -l)"
-    echo "espaço aéreo:  $espaco de 9 GeoJSONs em dados/espaco/ (atualizar a cada AIRAC: dados/espaco/LEIAME.md)"
+    local espaco; espaco="$(find data/espaco -maxdepth 1 -name '*.geojson' 2>/dev/null | wc -l)"
+    echo "espaço aéreo:  $espaco de 9 GeoJSONs em data/espaco/ (atualizar a cada AIRAC: data/espaco/LEIAME.md)"
 }
 
 log() { [[ -f "$LOG" ]] || erro "sem log ainda ($LOG)"; tail -n 50 -f "$LOG"; }

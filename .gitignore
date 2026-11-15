@@ -27,8 +27,8 @@ __pycache__/
 *.log
 
 # GeoJSONs do DECEA: dado público, ~4 MB, muda a cada ciclo AIRAC
-dados/espaco/*.geojson
-dados/espaco/.bkp/
+data/espaco/*.geojson
+data/espaco/.bkp/
 
 # vento (JSON do WIFS, ~77 MB, muda a cada rodada); caminho em VISA_VENTO_DIR
 wifs/ventos/

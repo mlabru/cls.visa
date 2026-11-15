@@ -3,7 +3,7 @@ Espaço aéreo: aerovias, cartas ENRC, FIR, TMA e áreas proibidas, restritas e 
 
 Duas fontes possíveis para cada camada:
 
-1. **Arquivo local (preferido)** — `dados/espaco/<chave>.geojson`, baixado do WFS do DECEA
+1. **Arquivo local (preferido)** — `data/espaco/<chave>.geojson`, baixado do WFS do DECEA
    uma vez por ciclo AIRAC (28 dias). O mapa desenha os vetores: cor, espessura e
    tracejado de verdade, informações ao clicar, e nenhuma dependência do Cloudflare.
    URL para baixar (abrir num navegador normal):
