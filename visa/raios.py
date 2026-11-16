@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 Raios (descargas atmosféricas): camada WMS `lightning_data` do GeoServer da REDEMET.
 
 As imagens passam pelo mesmo proxy do radar (/radar/wms). O GeoServer desenha os raios

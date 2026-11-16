@@ -1,7 +1,13 @@
-"""BarraSaude: no canto direito do cabeçalho, a idade e a situação de cada fonte de dados ligada.
+# -*- coding: utf-8 -*-
+"""
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
 
-As regras (o que é recente, atrasado, crítico) estão em saude.py; aqui só se junta o que
-cada camada sabe e se desenha.
+BarraSaude: no canto direito do cabeçalho, a idade e a situação de cada
+fonte de dados ligada.
+
+As regras (o que é recente, atrasado, crítico) estão em saude.py; aqui só se
+junta o que cada camada sabe e se desenha.
 """
 import time
 from datetime import UTC, datetime

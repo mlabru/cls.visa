@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 Cache em memória com tamanho máximo, usado por vários módulos (redemet, impacto, rotas).
 
 Um dict do Python lembra a ordem de inserção, então `next(iter(cache))` é o item mais antigo.

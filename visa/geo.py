@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 Contas de geografia usadas por vários módulos (funções puras, sem rede nem tela).
 
 Por que um módulo só para isso: a mesma conta aparecia copiada em sonda.py, impacto.py,

@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 A animação no mapa: prepara as imagens das últimas horas e troca a opacidade a cada passo.
 A linha do tempo (passos de 10 min) é calculada em animacao.py.
 """

@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 Desenho de formas simples no mapa, feito em Python (sem JavaScript próprio).
 
 Cada forma vira uma camada do próprio Leaflet (L.circle, L.polyline, L.geoJSON...),

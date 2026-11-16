@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 Sonda: o que se sabe sobre um ponto do mapa.
 
 Clique direito no mapa (ou clique com a sonda ligada) e o painel da direita mostra, para

@@ -1,4 +1,10 @@
-"""Peças pequenas da tela, usadas por várias áreas."""
+# -*- coding: utf-8 -*-
+"""
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
+Peças pequenas da tela, usadas por várias áreas.
+"""
 from contextlib import contextmanager
 
 from nicegui import ui

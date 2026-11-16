@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 Camadas de observação: radar, satélite e raios (o que já aconteceu, medido).
 
 As três podem ser pausadas pela animação (`pausar_ao_vivo` / `retomar_ao_vivo`).

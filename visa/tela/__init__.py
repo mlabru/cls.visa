@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 As áreas da tela, uma classe por área (montadas por interface.pagina()):
 
     ┌──────────────────────────── Cabecalho ─────────────────────────────┐

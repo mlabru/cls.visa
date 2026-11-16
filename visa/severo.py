@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 Tempo severo previsto (WRF e outros modelos): feições do WFS `redemet:tempo_severo`.
 
 Cada feição é uma área (polígono) ou um ponto, com as propriedades

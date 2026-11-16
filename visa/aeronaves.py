@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 Tráfego aéreo em tempo real (ciop-tracker do DECEA, via Pusher).
 
 O servidor mantém UMA conexão com o Pusher, compartilhada por todos os navegadores.

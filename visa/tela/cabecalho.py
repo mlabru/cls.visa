@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 Cabecalho: a faixa do topo.
 
   ☰  CLS Visa  [Convecção|Altitude|Terminal] [aeródromo]  personalizado   [FAB.ia ³] [Sonda]  BarraSaude

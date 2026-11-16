@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 CLS Visa — visualizador meteorológico para quem acompanha o tráfego aéreo.
 
 Para rodar (da raiz do projeto):   ./visa.sh rodar   (ou .venv/bin/python visa/main.py)

@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 Espaço aéreo: aerovias, cartas ENRC, FIR, TMA e áreas proibidas, restritas e perigosas.
 
 Duas fontes possíveis para cada camada:

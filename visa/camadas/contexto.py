@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 Camadas de contexto aeronáutico: tráfego, conflitos do FAB.ia, rotas, espaço aéreo e aeródromos.
 """
 from datetime import UTC, datetime

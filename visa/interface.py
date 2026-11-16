@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 A tela do CLS Visa, pensada para o meteorologista que acompanha o tráfego aéreo.
 
 Este arquivo só monta as áreas da tela, que estão no pacote `tela/` (uma classe por área;

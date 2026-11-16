@@ -1,13 +1,18 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 PainelCamadas: a gaveta da esquerda, com um cartão por camada em três grupos.
 
   Observação            Satélite, Radar, Raios
   Previsão              Tempo severo, WIFS, Vento
   Contexto aeronáutico  Tráfego, Aeródromos, Espaço aéreo
 
-Cada cartão tem a chave liga/desliga no título e os ajustes dentro. Os controles são
-ligados (bind_value) às preferências; ao mudar, chamam o método da camada correspondente.
-Um método por cartão: para mexer num cartão, procure o método com o nome dele.
+Cada cartão tem a chave liga/desliga no título e os ajustes dentro.  Os
+controles são ligados (bind_value) às preferências; ao mudar, chamam o
+método da camada correspondente.  Um método por cartão: para mexer num
+cartão, procure o método com o nome dele.
 """
 from nicegui import ui
 

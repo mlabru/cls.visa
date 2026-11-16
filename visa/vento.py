@@ -1,5 +1,10 @@
+# -*- coding: utf-8 -*-
 """
-Vento em altitude: localiza os arquivos, recorta para a América do Sul e calcula a idade.
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
+Vento em altitude: localiza os arquivos, recorta para a América do Sul e
+calcula a idade.
 
 Os arquivos seguem o padrão  wind_<AAAAMMDDTHHMMSSZ>_<pressão em Pa>.json  e estão
 no formato do leaflet-velocity: uma lista com dois registros (componente U e V),

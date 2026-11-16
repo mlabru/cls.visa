@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 Aeródromos: status meteorológico (METAR/TAF/avisos) vindo da API da REDEMET.
 
 O servidor consulta a REDEMET (a api_key fica só aqui) e guarda o resultado por

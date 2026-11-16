@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 Leitura de datas vindas de fora (API da REDEMET, GeoServer, arquivos de vento, preferências).
 
 Regra única (DECISOES 2.6): tudo em UTC. Uma data sem fuso é tratada como UTC; uma com fuso

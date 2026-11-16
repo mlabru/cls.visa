@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 Animação de satélite, radar e raios: a linha do tempo comum aos três.
 
 O satélite tem imagem a cada 10 min; o radar, a cada 20 min; os raios, a cada 6–7 min.

@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 Peças comuns às camadas (por composição: não há classe-base, ver DECISOES 8.1).
 """
 from nicegui import ui

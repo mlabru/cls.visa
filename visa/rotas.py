@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 Trajetória percorrida por um voo, vinda do ciop-tracker do DECEA.
 
     GET <TRACKER_BASE>/montreal/<indicativo>/<AAAA-MM-DD>?apikey=...

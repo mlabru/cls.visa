@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 Modos de trabalho: conjuntos de camadas pensados para uma tarefa do meteorologista.
 
 Um modo só muda as preferências (o que fica ligado). A interface está ligada a essas

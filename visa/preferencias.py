@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 Preferências de cada usuário: os valores iniciais e a migração das que já estão salvas.
 
 Sem NiceGUI: quem guarda as preferências no navegador é interface.py (app.storage.user);

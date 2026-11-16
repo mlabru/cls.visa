@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 Painel de impacto: onde o tempo está afetando (ou vai afetar) a operação agora.
 
 O servidor calcula uma vez por minuto, para todos os usuários, a partir do último

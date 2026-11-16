@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 WIFS — previsão em altitude: camadas WMS do GeoServer da REDEMET, por nível de voo.
 
 As imagens passam pelo proxy /radar/wms (o GeoServer é interno). O vento do WIFS

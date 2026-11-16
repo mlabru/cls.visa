@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 Radar e satélite pela API de produtos da REDEMET (funciona sem VPN).
 
 A API devolve, para cada produto, o endereço de uma imagem PNG e a área que ela cobre.

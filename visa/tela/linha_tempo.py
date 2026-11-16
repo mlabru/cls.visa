@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 LinhaDoTempo: a barra embaixo do mapa que controla a animação de satélite, radar e raios.
 
 Só os controles. Quem prepara as imagens e troca os quadros é a CamadaAnimacao

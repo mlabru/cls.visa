@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 Camadas do mapa: cada classe liga, desliga e atualiza uma camada do Leaflet.
 
 Não monta painel nenhum: o pacote `tela/` (painel_camadas.py) cria os controles e chama estes métodos.

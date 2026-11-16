@@ -1,4 +1,11 @@
-"""AreaDoMapa: o mapa Leaflet, o fundo apagado e os lugares da legenda e da linha do tempo."""
+# -*- coding: utf-8 -*-
+"""
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
+AreaDoMapa: o mapa Leaflet, o fundo apagado e os lugares da legenda e da
+linha do tempo.
+""" 
 from nicegui import ui
 
 import config

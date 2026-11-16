@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 Saúde dos dados: a idade e a situação de cada fonte, para a barra no topo da tela.
 
 Funções puras: recebem o que cada camada sabe (horários, erros) e devolvem um Indicador.

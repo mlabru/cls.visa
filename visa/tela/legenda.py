@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 Legenda: uma só, flutuando sobre o mapa, com as camadas meteorológicas ligadas.
 
 Ela depende de ~25 valores espalhados (preferências, a previsão de tempo severo escolhida,

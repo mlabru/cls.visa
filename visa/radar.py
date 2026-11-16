@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 Radar meteorológico: proxy do WMS do GeoServer e filtro de refletividade (dBZ).
 
 O navegador nunca fala direto com o GeoServer: ele pede os tiles a /radar/wms

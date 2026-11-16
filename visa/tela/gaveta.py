@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """
+Centro Logístico de Simulação Meteorológica
+Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+
 A gaveta da direita, com duas abas:
   FAB.ia    (impacto) aeródromos, TMAs e tráfego afetados agora (calculado no servidor, impacto.py)
             e os conflitos previstos de aeronaves com núcleos de tempestade (previsao.py)

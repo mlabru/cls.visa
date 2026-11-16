@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Centro Logístico de Simulação Meteorológica
+# Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
+#
 # Orquestração do CLS Visa: instalar, rodar, parar, testar.
 #
 #   ./visa.sh <comando>        (pode ser chamado de qualquer pasta)
