@@ -104,3 +104,19 @@ def test_erro_some_quando_a_api_volta_sem_quadro_novo(monkeypatch):
     monkeypatch.setattr(impacto, 'situacao', impacto.Situacao(erro='API da REDEMET indisponível', versao=1))
     asyncio.run(impacto.atualizar())
     assert impacto.situacao.erro == '' and impacto.situacao.versao == 1     # nada recalculado
+
+
+def test_fontes_validas_e_perigo_so_das_recentes():
+    from datetime import UTC, datetime, timedelta
+
+    import previsao
+    agora = datetime(2026, 11, 16, 12, tzinfo=UTC)
+    antes = lambda m: agora - timedelta(minutes=m)
+    assert impacto.fontes_validas(antes(40), antes(10), agora) == {previsao.RADAR, previsao.RAIOS}
+    assert impacto.fontes_validas(antes(50), antes(10), agora) == {previsao.RAIOS}
+    assert impacto.fontes_validas(None, antes(25), agora) == frozenset()
+    radar_, raios = {(1, 1): 'eco', (2, 2): 'eco'}, {(2, 2): 'raios na célula'}
+    assert impacto.combinar_perigo(radar_, raios, frozenset({previsao.RADAR, previsao.RAIOS})) == \
+        {(1, 1): 'eco', (2, 2): 'raios na célula'}
+    assert impacto.combinar_perigo(radar_, raios, frozenset({previsao.RAIOS})) == raios
+    assert impacto.combinar_perigo(radar_, raios, frozenset()) == {}

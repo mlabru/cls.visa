@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Centro Logístico de Simulação Meteorológica
 Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
@@ -124,8 +123,8 @@ def idade(referencia: datetime, agora: datetime | None = None) -> tuple[str, str
 KT_POR_MS = 1.943844
 
 
-def valor_no_ponto(registros: list[dict], lat: float, lon: float) -> tuple[int, int] | None:
-    """(direção de onde vem, em graus; velocidade em kt) no ponto de grade mais próximo."""
+def uv_no_ponto(registros: list[dict], lat: float, lon: float) -> tuple[float, float] | None:
+    """Componentes (u para leste, v para norte), em m/s, no ponto de grade mais próximo."""
     try:
         u_reg, v_reg = registros[0], registros[1]
         h = u_reg['header']
@@ -138,8 +137,72 @@ def valor_no_ponto(registros: list[dict], lat: float, lon: float) -> tuple[int, 
         return None
     if u is None or v is None:
         return None
+    return float(u), float(v)
+
+
+def valor_no_ponto(registros: list[dict], lat: float, lon: float) -> tuple[int, int] | None:
+    """(direção de onde vem, em graus; velocidade em kt) no ponto de grade mais próximo."""
+    uv = uv_no_ponto(registros, lat, lon)
+    if uv is None:
+        return None
+    u, v = uv
     direcao = round((270 - math.degrees(math.atan2(v, u))) % 360)
     return (direcao if direcao else 360), round(math.hypot(u, v) * KT_POR_MS)
+
+
+# ---------------------------------------------------------------------------
+# Vento que leva as tempestades (para o movimento dos núcleos do FAB.ia, previsao.py)
+# ---------------------------------------------------------------------------
+
+# As tempestades andam, grosso modo, com o vento médio da camada 850–300 hPa ("vento de
+# deslocamento"). É uma aproximação: células fortes podem desviar uns 30° e andar mais devagar.
+DESLOCAMENTO_PA = (85000, 70000, 50000, 30000)
+DESLOCAMENTO_IDADE_MAX_H = config.VENTO_IDADE_VELHO_H   # arquivo mais longe de agora que isso: não usa
+KM_MIN_POR_MS = 0.06                                     # 1 m/s = 0,06 km/min
+
+
+def arquivos_de_deslocamento(agora: datetime, arquivos: list[ArquivoVento]) -> list[ArquivoVento]:
+    """Os arquivos de DESLOCAMENTO_PA do horário mais perto de `agora` que tenha todos os níveis.
+
+    Vazio se não houver horário completo a menos de DESLOCAMENTO_IDADE_MAX_H de agora: vento
+    velho daria um movimento pior que nenhum.
+    """
+    por_horario: dict[datetime, dict[int, ArquivoVento]] = {}
+    for a in arquivos:
+        if a.pressao_pa in DESLOCAMENTO_PA:
+            por_horario.setdefault(a.horario, {})[a.pressao_pa] = a
+    limite_s = DESLOCAMENTO_IDADE_MAX_H * 3600
+    completos = [h for h, niveis in por_horario.items()
+                 if len(niveis) == len(DESLOCAMENTO_PA) and abs((agora - h).total_seconds()) <= limite_s]
+    if not completos:
+        return []
+    melhor = min(completos, key=lambda h: abs((agora - h).total_seconds()))
+    return [por_horario[melhor][pa] for pa in DESLOCAMENTO_PA]
+
+
+def deslocamento_medio(niveis: list[list[dict]], lat: float, lon: float) -> tuple[float, float] | None:
+    """(para o norte, para o leste), em km/min: a média do vento nos níveis dados."""
+    valores = [uv for registros in niveis if (uv := uv_no_ponto(registros, lat, lon)) is not None]
+    if len(valores) < len(niveis) or not valores:
+        return None
+    u = sum(x[0] for x in valores) / len(valores)
+    v = sum(x[1] for x in valores) / len(valores)
+    return v * KM_MIN_POR_MS, u * KM_MIN_POR_MS
+
+
+def deslocamento(agora: datetime, pasta: Path = config.VENTO_DIR):
+    """Função (lat, lon) -> (vn, ve) em km/min, ou None se não houver vento recente na pasta.
+
+    Lê os arquivos uma vez (carregar_recortado guarda) e devolve a função que o previsao.py usa.
+    """
+    escolhidos = arquivos_de_deslocamento(agora, listar_arquivos(pasta))
+    if not escolhidos:
+        return None
+    try:
+        niveis = [carregar_recortado(a.caminho) for a in escolhidos]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return lambda lat, lon: deslocamento_medio(niveis, lat, lon)
 
 
 _FL_DA_PRESSAO = {pa: fl for fl, pa in config.VENTO_FL_PARA_PA.items()}

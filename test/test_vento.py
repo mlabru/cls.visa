@@ -1,6 +1,8 @@
 import json
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 import config
 import vento
 
@@ -68,3 +70,30 @@ def test_valor_no_ponto():
     assert vento.valor_no_ponto([u, v], -20, -59) is None                     # fora da grade
     assert [vento.fl_da_pressao(p) for p in (25000, 50000, 85000)] == [340, 180, 50]   # como no painel
     assert vento.fl_da_pressao(12500) == 475                                       # fora da tabela: padrão
+
+
+def _grade_uv(u: float, v: float) -> list[dict]:
+    cabecalho = {'lo1': 300.0, 'la1': 0.0, 'dx': 1.0, 'dy': 1.0, 'nx': 3, 'ny': 3}
+    return [{'header': cabecalho, 'data': [u] * 9}, {'header': cabecalho, 'data': [v] * 9}]
+
+
+def test_deslocamento_medio_em_km_por_minuto():
+    niveis = [_grade_uv(10.0, 0.0), _grade_uv(20.0, -10.0)]     # média: 15 m/s para leste, 5 m/s para sul
+    vn, ve = vento.deslocamento_medio(niveis, -1, -59)
+    assert vn == pytest.approx(-0.3) and ve == pytest.approx(0.9)   # 1 m/s = 0,06 km/min
+    assert vento.deslocamento_medio(niveis, -20, -59) is None         # fora da grade
+
+
+def test_arquivos_de_deslocamento_exige_todos_os_niveis_e_recentes(tmp_path):
+    def criar(horario, niveis):
+        for pa in niveis:
+            (tmp_path / f'wind_{horario}_{pa}.json').write_text('[]')
+    criar('20261116T060000Z', vento.DESLOCAMENTO_PA)
+    criar('20261116T120000Z', vento.DESLOCAMENTO_PA[:-1])            # falta um nível
+    arquivos = vento.listar_arquivos(tmp_path)
+    agora = datetime(2026, 11, 16, 13, tzinfo=UTC)
+    escolhidos = vento.arquivos_de_deslocamento(agora, arquivos)
+    assert [a.pressao_pa for a in escolhidos] == list(vento.DESLOCAMENTO_PA)
+    assert {a.horario.hour for a in escolhidos} == {6}
+    assert vento.arquivos_de_deslocamento(agora + timedelta(days=2), arquivos) == []   # velho demais
+    assert vento.deslocamento(agora + timedelta(days=2), tmp_path) is None

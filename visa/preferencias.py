@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Centro Logístico de Simulação Meteorológica
 Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
@@ -52,6 +51,7 @@ PADRAO = {
     'animacao_janela_min': animacao.JANELA_PADRAO,
     'terminal': 'SBGR',
     'legenda_aberta': True,
+    'fabia_baixa': False,            # FAB.ia: mostrar os conflitos de confiança baixa (o registro guarda todos)
 }
 
 

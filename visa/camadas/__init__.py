@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Centro Logístico de Simulação Meteorológica
 Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo

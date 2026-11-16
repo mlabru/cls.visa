@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Centro Logístico de Simulação Meteorológica
 Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
@@ -246,6 +245,7 @@ class PainelImpacto:
                  camadas_: camadas.CamadasDaPagina, painel_sonda: PainelSonda) -> None:
         self.gaveta, self.mapa, self.prefs = gaveta, area.mapa, prefs
         self.severo, self.sonda = camadas_.severo, painel_sonda
+        self.linhas_conflitos = camadas_.conflitos
         with gaveta.aba_impacto:
             self.conteudo = ui.column().classes('w-full gap-1')
         ui.timer(previsao.REDESENHO_S, self.desenhar)
@@ -292,12 +292,16 @@ class PainelImpacto:
 
     @staticmethod
     def _resumo(s: impacto.Situacao) -> None:
-        fontes = []
-        if s.radar_quando:
-            fontes.append(f'radar {s.radar_quando:%H:%MZ}')
-        if s.raios_quando:
-            fontes.append(f'raios {s.raios_quando:%H:%MZ}')
+        fontes, velhas = [], []
+        for nome, chave, quando in (('radar', previsao.RADAR, s.radar_quando), ('raios', previsao.RAIOS, s.raios_quando)):
+            if quando:
+                fontes.append(f'{nome} {quando:%H:%MZ}')
+                if chave not in s.fontes:
+                    velhas.append(nome)
         ui.label(' · '.join(fontes) + ' · atualiza a cada minuto').classes('legenda-texto')
+        if velhas:
+            ui.label(f"{' e '.join(velhas)} atrasado(s): fora do tráfego em área de risco e do FAB.ia") \
+                .classes('text-caption text-warning')
         with ui.row().classes('gap-2 q-my-xs'):
             for nivel, (cor, texto) in impacto.NIVEIS.items():
                 n = sum(1 for i in s.aerodromos + s.tmas if i.nivel == nivel)
@@ -329,31 +333,54 @@ class PainelImpacto:
 
     def _conflitos(self) -> None:
         """FAB.ia: aeronaves em rota que vão cruzar um núcleo nos próximos 30 min (previsao.py)."""
-        s = previsao.situacao
-        secao(f'Conflitos previstos ({len(s.conflitos)})', 'route')
+        secao('Conflitos previstos', 'route')
         ui.label(f'projeção em linha reta (rumo e velocidade atuais), até {previsao.HORIZONTE_MIN} min; '
                  f'só aeronaves em rota (FL{previsao.FL_MIN:03d}+); linhas tracejadas no mapa') \
             .classes('legenda-texto')
-        if s.calculado is None:
-            ui.label('aguardando o primeiro cálculo').classes('legenda-texto')
-            return
-        if not s.conflitos:
-            ui.label('nenhum conflito previsto').classes('legenda-texto')
-        for c in s.conflitos[:previsao.MAX_CONFLITOS]:
-            cor = previsao.COR_CONFIANCA[c.confianca]
-            with ui.element('div').classes('impacto-item w-full').style(f'border-left-color: {cor}') \
-                    .on('click', lambda c=c: self._ir_para_conflito(c)):
-                with ui.row().classes('items-baseline no-wrap gap-2'):
-                    ui.label(c.indicativo).classes('text-body2 text-weight-bold')
-                    ui.label('—' if c.fl is None else f'FL{c.fl:03d}').classes('legenda-texto')
-                    ui.label(f'em ~{c.minutos} min').classes('text-caption').style(f'color: {cor}')
-                ui.label(f'{c.nucleo.descricao()}; {previsao.TEXTO_CONFIANCA[c.confianca]}') \
-                    .classes('impacto-motivos')
-        r = previsao.resumir(s.placar)
-        if r['alertas'] or r['nao_previstos']:
-            ui.label(f"desde {s.desde:%d/%m %H:%MZ}: {r['alertas']} alertas, {r['acertos']} confirmados, "
-                     f"{r['falsos']} falsos, {r['nao_previstos']} entradas não previstas") \
-                .classes('legenda-texto q-mt-xs')
+        # A chave fica fora da lista: refazer a lista ao mudá-la não apaga a própria chave
+        # Sem bind_value: a ligação dispararia on_change ao criar, antes de a lista existir
+        ui.switch('mostrar confiança baixa', value=self.prefs['fabia_baixa'], on_change=self._mudou_baixa) \
+            .props('dense').classes('legenda-texto')
+        self.lista_conflitos = ui.column().classes('w-full gap-1')
+        self._listar_conflitos()
+
+    def _listar_conflitos(self) -> None:
+        s = previsao.situacao
+        self.lista_conflitos.clear()
+        with self.lista_conflitos:
+            if s.pausa:
+                ui.label(f'FAB.ia parado: {s.pausa}').classes('text-caption text-warning')
+                return
+            if s.calculado is None:
+                ui.label('aguardando o primeiro cálculo').classes('legenda-texto')
+                return
+            mostrados = previsao.para_a_tela(s.conflitos, self.prefs['fabia_baixa'])
+            escondidos = len(s.conflitos) - len(mostrados)
+            texto = f'{len(mostrados)} conflito(s)' if mostrados else 'nenhum conflito previsto'
+            if escondidos:
+                texto += f' ({escondidos} de confiança baixa escondido(s))'
+            ui.label(texto).classes('legenda-texto')
+            for c in mostrados[:previsao.MAX_CONFLITOS]:
+                cor = previsao.COR_CONFIANCA[c.confianca]
+                with ui.element('div').classes('impacto-item w-full').style(f'border-left-color: {cor}') \
+                        .on('click', lambda c=c: self._ir_para_conflito(c)):
+                    with ui.row().classes('items-baseline no-wrap gap-2'):
+                        ui.label(c.indicativo).classes('text-body2 text-weight-bold')
+                        ui.label('—' if c.fl is None else f'FL{c.fl:03d}').classes('legenda-texto')
+                        ui.label(f'em ~{c.minutos} min').classes('text-caption').style(f'color: {cor}')
+                    ui.label(f'{c.nucleo.descricao()}; {previsao.TEXTO_CONFIANCA[c.confianca]}') \
+                        .classes('impacto-motivos')
+            r = previsao.resumir(s.placar)
+            if r['alertas'] or r['nao_previstos']:
+                ui.label(f"desde {s.desde:%d/%m %H:%MZ}: {r['alertas']} alertas, {r['acertos']} confirmados, "
+                         f"{r['falsos']} falsos, {r['nao_previstos']} entradas não previstas") \
+                    .classes('legenda-texto q-mt-xs')
+
+    def _mudou_baixa(self, evento) -> None:
+        """Chave "mostrar confiança baixa": refaz a lista e as linhas do mapa na hora."""
+        self.prefs['fabia_baixa'] = evento.value
+        self._listar_conflitos()
+        self.linhas_conflitos.desenhar()
 
     def _ir_para_conflito(self, c: previsao.Conflito) -> None:
         """Clique: mostra a aeronave e o ponto de encontro juntos."""

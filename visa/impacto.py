@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Centro Logístico de Simulação Meteorológica
 Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
@@ -36,6 +35,7 @@ import previsao
 import radar
 import redemet
 import sonda
+import vento
 
 log = logging.getLogger(__name__)
 
@@ -51,6 +51,11 @@ ECO_FIXO_QUADROS_MIN = 6
 PIXELS_MINIMOS = 3           # o dBZ de uma área é o 3º maior valor: um pixel isolado (ruído, eco de
                              # solo) não dispara impacto; um núcleo de convecção ocupa vários pixels
 ATUALIZA_S = 60
+# Até que idade um quadro entra no mapa de risco e no FAB.ia. Mais velho que isso, a fonte fica
+# de fora (sem nenhuma, o FAB.ia para): alerta sobre dado velho engana a tela e o registro.
+# Radar da API: quadro a cada 20 min, que chega com 10–20 min. Raios: a cada 6–7 min.
+RADAR_VALIDO_MIN = 45
+RAIOS_VALIDO_MIN = 20
 
 ALTO, MEDIO, BAIXO = 'alto', 'medio', 'baixo'
 NIVEIS = {ALTO: ('#ef4444', 'Impacto alto'), MEDIO: ('#f59e0b', 'Impacto médio'), BAIXO: ('#3b82f6', 'Atenção')}
@@ -76,7 +81,10 @@ class Situacao:
     raios_quando: datetime | None = None
     aerodromos: list[Impacto] = field(default_factory=list)
     tmas: list[Impacto] = field(default_factory=list)
-    perigo: dict[geo.Chave, str] = field(default_factory=dict)   # célula 0,1° -> motivo
+    perigo: dict[geo.Chave, str] = field(default_factory=dict)   # célula 0,1° -> motivo (só fontes recentes)
+    perigo_radar: dict[geo.Chave, str] = field(default_factory=dict)    # do último quadro, recente ou não
+    perigo_raios: dict[geo.Chave, str] = field(default_factory=dict)
+    fontes: frozenset = frozenset()          # previsao.RADAR e/ou previsao.RAIOS com quadro recente
     erro: str = ''
     versao: int = 0
 
@@ -347,10 +355,24 @@ def _nucleos(campos: list, campos_antes: list, radar_quando, radar_antes_quando,
         quadro(radar_quando, celulas_fortes(campos)) if campos else None,
         quadro(radar_antes_quando, celulas_fortes(campos_antes)) if campos_antes else None,
         quadro(raios.quando, celulas_de_raios(raios)) if raios else None,
-        quadro(raios_antes.quando, celulas_de_raios(raios_antes)) if raios_antes else None)
+        quadro(raios_antes.quando, celulas_de_raios(raios_antes)) if raios_antes else None,
+        vento.deslocamento(datetime.now(UTC)))
 
 
-def _calcular(campos: list, quadro_raios: redemet.QuadroRaios | None) -> tuple[list, list, dict]:
+def fontes_validas(radar_quando: datetime | None, raios_quando: datetime | None, agora: datetime) -> frozenset:
+    """As fontes cujo último quadro ainda é recente (RADAR_VALIDO_MIN, RAIOS_VALIDO_MIN)."""
+    def recente(quando: datetime | None, limite_min: float) -> bool:
+        return quando is not None and (agora - quando).total_seconds() / 60 <= limite_min
+    return frozenset(f for f, ok in ((previsao.RADAR, recente(radar_quando, RADAR_VALIDO_MIN)),
+                                     (previsao.RAIOS, recente(raios_quando, RAIOS_VALIDO_MIN))) if ok)
+
+
+def combinar_perigo(radar_: dict, raios: dict, fontes: frozenset) -> dict[geo.Chave, str]:
+    """O mapa de risco só com as fontes recentes. Raios valem mais que eco (como em mapa_de_perigo)."""
+    return {**(radar_ if previsao.RADAR in fontes else {}), **(raios if previsao.RAIOS in fontes else {})}
+
+
+def _calcular(campos: list, quadro_raios: redemet.QuadroRaios | None) -> tuple[list, list, dict, dict]:
     vazio = redemet.QuadroRaios(datetime.min, ())
     quadro_raios = quadro_raios or vazio
     lista_a = []
@@ -362,7 +384,8 @@ def _calcular(campos: list, quadro_raios: redemet.QuadroRaios | None) -> tuple[l
             lista_a.append(Impacto('aerodromo', a.icao, a.nome, a.lat, a.lon, nivel, tuple(motivos), pontos))
     lista_t = [i for t in carregar_tmas()
                if (i := avaliar_tma(t.sigla, t.nome, t.aneis, campos, quadro_raios.celulas))]
-    return ordenar(lista_a), ordenar(lista_t), mapa_de_perigo(campos, quadro_raios.celulas)
+    # Um mapa por fonte, para tirar do cálculo a que ficar velha (combinar_perigo)
+    return ordenar(lista_a), ordenar(lista_t), mapa_de_perigo(campos, ()), mapa_de_perigo([], quadro_raios.celulas)
 
 
 async def atualizar() -> None:
@@ -401,12 +424,13 @@ async def atualizar() -> None:
     campos_antes = await _campos(radar_antes, mascaras) if radar_antes else []
     raios_antes = previsao.anterior(raios, ultimo_raios) if ultimo_raios else None
     inicio = time.monotonic()
-    lista_a, lista_t, perigo = await asyncio.to_thread(_calcular, campos, ultimo_raios)
+    lista_a, lista_t, perigo_radar, perigo_raios = await asyncio.to_thread(_calcular, campos, ultimo_raios)
     await asyncio.to_thread(_nucleos, campos, campos_antes, radar_quando,
                             radar_antes.quando if radar_antes else None, ultimo_raios, raios_antes)
     log.info('impacto: %d aeródromos, %d TMAs, %d células de perigo (%.1f s)',
-             len(lista_a), len(lista_t), len(perigo), time.monotonic() - inicio)
-    situacao.aerodromos, situacao.tmas, situacao.perigo = lista_a, lista_t, perigo
+             len(lista_a), len(lista_t), len({**perigo_radar, **perigo_raios}), time.monotonic() - inicio)
+    situacao.aerodromos, situacao.tmas = lista_a, lista_t
+    situacao.perigo_radar, situacao.perigo_raios = perigo_radar, perigo_raios
     situacao.radar_quando, situacao.raios_quando = radar_quando, raios_quando
     situacao.versao += 1
 
@@ -427,13 +451,24 @@ async def _campos(quadro: redemet.QuadroRadar, mascaras: dict) -> list:
 
 
 async def prever() -> None:
-    """FAB.ia: conflitos previstos, a cada minuto (as aeronaves andam mesmo sem quadro novo)."""
+    """FAB.ia: conflitos previstos, a cada minuto (as aeronaves andam mesmo sem quadro novo).
+
+    Antes, confere a idade dos quadros: fonte velha sai do mapa de risco (âmbar na tela e
+    verificação) e dos núcleos; sem nenhuma fonte recente, o FAB.ia para.
+    """
     if not situacao.versao:
         return                    # sem mapa de perigo ainda: o verificador contaria entradas falsas
+    agora = datetime.now(UTC)
+    situacao.fontes = fontes_validas(situacao.radar_quando, situacao.raios_quando, agora)
+    situacao.perigo = combinar_perigo(situacao.perigo_radar, situacao.perigo_raios, situacao.fontes)
+    if not situacao.fontes:
+        previsao.pausar(agora, f'sem quadro recente de radar (até {RADAR_VALIDO_MIN} min) '
+                               f'nem de raios (até {RAIOS_VALIDO_MIN} min)')
+        return
     # Cópia da lista aqui, no laço do servidor: o Pusher altera o dicionário enquanto a conta roda
     elegiveis = [a for a in list(aeronaves.trafego.aeronaves.values()) if previsao.em_rota(a)]
-    em_perigo = {a.chave for a in elegiveis if alerta_da_aeronave(a.lat, a.lon)}
-    await asyncio.to_thread(previsao.ciclo, datetime.now(UTC), elegiveis, em_perigo)
+    em_perigo = {a.chave: (a.lat, a.lon) for a in elegiveis if alerta_da_aeronave(a.lat, a.lon)}
+    await asyncio.to_thread(previsao.ciclo, agora, elegiveis, em_perigo, situacao.fontes)
 
 
 async def vigiar() -> None:

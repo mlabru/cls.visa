@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Centro Logístico de Simulação Meteorológica
 Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
@@ -83,7 +82,8 @@ class CamadaConflitos:
         faixa = p['aeronaves_fl']
         visiveis = {a['indicativo'] for a in aeronaves.filtrar(self.aeronaves.prefixos(), faixa['min'], faixa['max'])}
         with self.mapa:
-            for c in [c for c in previsao.situacao.conflitos if c.indicativo in visiveis][:previsao.MAX_CONFLITOS]:
+            conflitos = previsao.para_a_tela(previsao.situacao.conflitos, p['fabia_baixa'])
+            for c in [c for c in conflitos if c.indicativo in visiveis][:previsao.MAX_CONFLITOS]:
                 agora = aeronaves.trafego.aeronaves.get(c.chave)
                 inicio = [agora.lat, agora.lon] if agora else [c.lat0, c.lon0]
                 cor = previsao.COR_CONFIANCA[c.confianca]
