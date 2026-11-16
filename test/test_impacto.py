@@ -120,3 +120,25 @@ def test_fontes_validas_e_perigo_so_das_recentes():
         {(1, 1): 'eco', (2, 2): 'raios na célula'}
     assert impacto.combinar_perigo(radar_, raios, frozenset({previsao.RAIOS})) == raios
     assert impacto.combinar_perigo(radar_, raios, frozenset()) == {}
+
+
+def test_raios_de_interferencia_saem_e_chuva_fica():
+    """Antena no centro de uma grade de ±3,6° (~2 km por pixel): um raio de 1° de largura indo
+    para leste, uma célula redonda e uma célula alongada na direção da antena."""
+    lat0, lon0, n = -10.0, -50.0, 400
+    lats = np.linspace(lat0 + 3.6, lat0 - 3.6, n)
+    lons = np.linspace(lon0 - 3.6, lon0 + 3.6, n)
+    la, lo = np.meshgrid(lats, lons, indexing='ij')
+    dy = (la - lat0) * geo.KM_POR_GRAU
+    dx = (lo - lon0) * geo.KM_POR_GRAU * np.cos(np.radians(lat0))
+    dist, azimute = np.hypot(dx, dy), np.degrees(np.arctan2(dx, dy)) % 360
+    campo = np.full((n, n), np.nan)
+    raio = (np.abs(azimute - 90) < 0.6) & (dist > 40) & (dist < 380)
+    redonda = np.hypot(dx - 0, dy - 150) < 20                               # 150 km ao norte
+    alongada = ((dx + 250) / 40) ** 2 + (dy / 15) ** 2 < 1                  # 80 × 30 km, a 250 km a oeste
+    campo[raio] = 50
+    campo[redonda] = 45
+    campo[alongada] = 45
+    apagar = impacto.raios_de_interferencia(campo, lats, lons, lat0, lon0)
+    assert apagar[raio].mean() > 0.8
+    assert not apagar[redonda].any() and not apagar[alongada].any()

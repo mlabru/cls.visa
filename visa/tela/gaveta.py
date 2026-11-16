@@ -267,7 +267,7 @@ class PainelImpacto:
     def _item(self, item: impacto.Impacto, extra: list[str]) -> None:
         cor, _ = impacto.NIVEIS[item.nivel]
         with ui.element('div').classes('impacto-item w-full').style(f'border-left-color: {cor}') \
-                .on('click', lambda i=item: self._ir_para(i)):
+                .on('click', lambda i=item: self._ir_para(i)).mark(f'impacto-{item.ident}'):
             with ui.row().classes('items-baseline no-wrap gap-1'):
                 ui.label(item.ident).classes('text-body2 text-weight-bold')
                 ui.label(item.nome).classes('legenda-texto ellipsis')
@@ -338,7 +338,8 @@ class PainelImpacto:
                  f'só aeronaves em rota (FL{previsao.FL_MIN:03d}+); linhas tracejadas no mapa') \
             .classes('legenda-texto')
         # A chave fica fora da lista: refazer a lista ao mudá-la não apaga a própria chave
-        # Sem bind_value: a ligação dispararia on_change ao criar, antes de a lista existir
+        # value= em vez de bind_value: o on_change já grava a preferência, e assim não há mais uma
+        # ligação conferida a cada 0,1 s (DECISOES 5.2)
         ui.switch('mostrar confiança baixa', value=self.prefs['fabia_baixa'], on_change=self._mudou_baixa) \
             .props('dense').classes('legenda-texto')
         self.lista_conflitos = ui.column().classes('w-full gap-1')

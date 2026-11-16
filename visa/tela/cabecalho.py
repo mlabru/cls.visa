@@ -42,7 +42,7 @@ class Cabecalho:
                 for modo in modos.MODOS:
                     self.botoes_modo[modo.chave] = ui.button(modo.titulo, icon=modo.icone,
                                                              on_click=lambda m=modo: self.escolher_modo(m)) \
-                        .props('dense no-caps size=sm').tooltip(modo.descricao)
+                        .props('dense no-caps size=sm').tooltip(modo.descricao).mark(f'modo-{modo.chave}')
             # Só aproxima quando a pessoa escolhe (o seletor só aparece no modo Terminal);
             # a lista de aeródromos chegando depois também "muda" o valor, e isso não deve mover o mapa
             self.seletor_terminal = ui.select(self._opcoes_terminal(), with_input=True) \
@@ -54,7 +54,7 @@ class Cabecalho:
             ui.space()
             with ui.button('FAB.ia', icon='warning', on_click=painel_impacto.alternar) \
                     .props(f'dense no-caps size=sm unelevated {COR_DESLIGADO}') \
-                    .tooltip('Aeródromos, TMAs e tráfego afetados agora'):
+                    .tooltip('Aeródromos, TMAs e tráfego afetados agora').mark('botao-fabia'):
                 self.selo_impacto = ui.badge('', color='red').props('rounded').classes('q-ml-xs')
             self.botao_sonda = ui.button('Sonda', icon='ads_click', on_click=self._alternar_sonda) \
                 .props(f'dense no-caps size=sm unelevated {COR_DESLIGADO}') \

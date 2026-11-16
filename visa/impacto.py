@@ -50,6 +50,14 @@ ECO_FIXO_FRACAO = 0.9
 ECO_FIXO_QUADROS_MIN = 6
 PIXELS_MINIMOS = 3           # o dBZ de uma área é o 3º maior valor: um pixel isolado (ruído, eco de
                              # solo) não dispara impacto; um núcleo de convecção ocupa vários pixels
+# Raios de interferência (raios_de_interferencia): linhas radiais estreitas e compridas
+INTERF_FATIA_GRAUS = 1
+INTERF_DEGRAU_KM = 4
+INTERF_INICIO_KM = 30          # perto da antena, uma fatia de 1° tem menos de um pixel
+INTERF_COMPRIMENTO_KM = 60
+INTERF_VIZINHAS_FRACAO = 0.3
+INTERF_LARGURA_MAX_GRAUS = 4   # raio: até 4 fatias cheias em ±6°; manchas de chuva alongadas: 7 ou mais
+INTERF_LONGO_KM = 150          # mais longo que isso, mesmo largo, é feixe (faixas de Petrolina, 16/11)
 ATUALIZA_S = 60
 # Até que idade um quadro entra no mapa de risco e no FAB.ia. Mais velho que isso, a fonte fica
 # de fora (sem nenhuma, o FAB.ia para): alerta sobre dado velho engana a tela e o registro.
@@ -151,6 +159,79 @@ def ordenar(lista: list[Impacto]) -> list[Impacto]:
 # caminho -> (eco sim/não compactado com np.packbits, forma). 1 bit por pixel (20 KB por imagem)
 # em vez de 1 byte (160 KB): guarda as ~250 imagens das últimas 3 h em ~5 MB.
 _eco_cache: dict[str, tuple[np.ndarray, tuple]] = {}
+
+
+def raios_de_interferencia(campo: np.ndarray, lats: np.ndarray, lons: np.ndarray,
+                           lat0: float, lon0: float) -> np.ndarray:
+    """Máscara dos pixels em "raios" de interferência: faixas radiais estreitas que saem da antena.
+
+    Interferência (Wi-Fi, outros transmissores, o Sol) aparece como uma linha de eco ao longo de
+    um azimute, às vezes forte (Rio Branco, 16/11: 51 dBZ). Ela muda um pouco de quadro para
+    quadro, então o filtro de eco fixo não a pega. Chuva de verdade é larga em azimute.
+
+    Regra (DECISOES 3.3), numa fatia de INTERF_FATIA_GRAUS a partir de INTERF_INICIO_KM:
+    1. eco contínuo (falhas de até um degrau de distância) por pelo menos INTERF_COMPRIMENTO_KM;
+    2. as fatias de 3 a 8 graus para cada lado têm eco em menos de INTERF_VIZINHAS_FRACAO desse
+       trecho (mediana);
+    3. estreito (até INTERF_LARGURA_MAX_GRAUS fatias com eco em mais da metade do trecho, em ±6°)
+       ou muito longo (INTERF_LONGO_KM). Sem isto, uma célula de chuva alongada na direção da
+       antena, longe dela, também sairia (conferido em Jaraguari e Santiago, 16/11).
+    Os pixels da fatia (e das duas vizinhas imediatas) nesse trecho saem.
+    """
+    com_eco = ~np.isnan(campo)
+    if not com_eco.any():
+        return np.zeros(campo.shape, bool)
+    la, lo = np.meshgrid(lats, lons, indexing='ij')
+    dy = (la - lat0) * geo.KM_POR_GRAU
+    dx = (lo - lon0) * geo.KM_POR_GRAU * np.cos(np.radians(lat0))
+    distancia = np.hypot(dx, dy)
+    n_fatias = round(360 / INTERF_FATIA_GRAUS)
+    fatia = (np.degrees(np.arctan2(dx, dy)) % 360 / INTERF_FATIA_GRAUS).astype(int) % n_fatias
+    degrau = (distancia / INTERF_DEGRAU_KM).astype(int)
+    n_degraus = int(degrau.max()) + 1
+    inicio = int(INTERF_INICIO_KM / INTERF_DEGRAU_KM)
+
+    ocupado = np.zeros((n_fatias, n_degraus), bool)
+    ocupado[fatia[com_eco], degrau[com_eco]] = True
+    ocupado[:, :inicio] = False
+    # Uma falha de um degrau não interrompe o raio (as linhas reais são pontilhadas)
+    cheio = ocupado.copy()
+    cheio[:, 1:-1] |= ocupado[:, :-2] & ocupado[:, 2:]
+
+    minimo = int(INTERF_COMPRIMENTO_KM / INTERF_DEGRAU_KM)
+    vizinhas = [d for k in range(3, 9) for d in (k, -k)]
+    apagar = np.zeros((n_fatias, n_degraus), bool)
+    for f in range(n_fatias):
+        linha = cheio[f]
+        if linha.sum() < minimo:
+            continue
+        # trechos contínuos da fatia
+        bordas = np.diff(np.concatenate(([0], linha.astype(np.int8), [0])))
+        for comeco, fim in zip(np.nonzero(bordas == 1)[0], np.nonzero(bordas == -1)[0]):
+            if fim - comeco < minimo:
+                continue
+            ao_lado = np.median([cheio[(f + d) % n_fatias, comeco:fim].mean() for d in vizinhas])
+            if ao_lado >= INTERF_VIZINHAS_FRACAO:
+                continue
+            largura = sum(1 for d in range(-6, 7) if cheio[(f + d) % n_fatias, comeco:fim].mean() > 0.5)
+            if largura <= INTERF_LARGURA_MAX_GRAUS or (fim - comeco) * INTERF_DEGRAU_KM >= INTERF_LONGO_KM:
+                for d in (-1, 0, 1):
+                    apagar[(f + d) % n_fatias, comeco:fim] = True
+    return apagar[fatia, degrau] & com_eco
+
+
+def apagar_interferencia(campo: np.ndarray, imagem: redemet.Imagem) -> np.ndarray:
+    """Tira os raios de interferência (raios_de_interferencia) da imagem de uma estação."""
+    estacao = radar.POR_CODIGO.get(imagem.codigo)
+    if estacao is None:
+        return campo
+    lats, lons = coordenadas(imagem, campo.shape)
+    mascara = raios_de_interferencia(campo, lats, lons, estacao.lat, estacao.lon)
+    if not mascara.any():
+        return campo
+    campo = campo.copy()
+    campo[mascara] = np.nan
+    return campo
 
 
 def apagar_centro(campo: np.ndarray, imagem: redemet.Imagem) -> np.ndarray:
@@ -446,6 +527,7 @@ async def _campos(quadro: redemet.QuadroRadar, mascaras: dict) -> list:
         fixo = eco_fixo(mascaras.get(imagem.codigo, []))
         if fixo is not None and fixo.shape == campo.shape:
             campo[fixo] = np.nan
+        campo = await asyncio.to_thread(apagar_interferencia, campo, imagem)
         campos.append((imagem, campo))
     return campos
 

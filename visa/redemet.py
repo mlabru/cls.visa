@@ -7,7 +7,8 @@ Radar e satélite pela API de produtos da REDEMET (funciona sem VPN).
 A API devolve, para cada produto, o endereço de uma imagem PNG e a área que ela cobre.
 As imagens estão em grade de latitude/longitude; o mapa usa Mercator. Por isso elas
 passam pelo nosso servidor (/redemet/imagem), que:
-  1. só aceita imagens do servidor estático da REDEMET (nada de endereço arbitrário);
+  1. só aceita imagens que a API já listou (`_conhecidas`): o endereço e a área vêm da API,
+     nunca do navegador — limites inventados gerariam trabalho de CPU e cache à vontade;
   2. reprojeta as linhas para Mercator (sem isso o satélite fica deslocado no sul);
   3. no radar, aplica o mesmo filtro de dBZ do GeoServer (as cores são as mesmas).
 A api_key fica só no servidor.
@@ -18,8 +19,9 @@ Caches (todos em memória, perdidos ao reiniciar — de propósito: os dados env
   _pngs        PNG ORIGINAL de cada imagem de radar (~3 KB cada). A sonda e o impacto leem o
                dBZ dele. Guardamos o PNG, e não a matriz decodificada (640 KB cada): decodificar
                um PNG de 400×400 leva ~1 ms, e 400 matrizes ocupariam ~250 MB.
-  _cache_img   imagem PRONTA para o navegador (reprojetada, filtrada) por (caminho, área, dBZ).
+  _cache_img   imagem PRONTA para o navegador (reprojetada, filtrada) por (caminho, dBZ).
                Permite à animação preparar tudo antes de tocar.
+  _conhecidas  cada Imagem que a API listou, por caminho: de onde a rota tira a área.
 Todos têm tamanho máximo e descartam o item mais antigo (ver `cache.guardar`).
 """
 import asyncio
@@ -86,8 +88,11 @@ class Imagem:
         return [[self.sul, self.oeste], [self.norte, self.leste]]
 
     def url(self, dbz_min: int = 0) -> str:
-        """Endereço no nosso servidor (o navegador nunca fala direto com a REDEMET)."""
-        parametros = {'c': self.caminho, 's': self.sul, 'n': self.norte}
+        """Endereço no nosso servidor (o navegador nunca fala direto com a REDEMET).
+
+        Só o caminho: a área quem sabe é o servidor (`_conhecidas`), não o navegador.
+        """
+        parametros = {'c': self.caminho}
         if dbz_min:
             parametros['dbz'] = dbz_min
         return '/redemet/imagem?' + urlencode(parametros)
@@ -97,6 +102,15 @@ _cliente = httpx.AsyncClient(timeout=httpx.Timeout(20, connect=5))
 _cache_api: dict[tuple, tuple[float, object]] = {}
 _cache_img: dict[tuple, tuple[bytes, str]] = {}
 _pngs: dict[str, bytes] = {}
+_conhecidas: dict[str, Imagem] = {}
+IMAGENS_CONHECIDAS = 2000        # ~28 estações × 12 quadros × alguns produtos, mais o satélite
+
+
+def _conhecer(imagens) -> None:
+    """Anota as imagens que a API listou: só elas podem ser pedidas em /redemet/imagem."""
+    for imagem in imagens:
+        if imagem.caminho:
+            cache.guardar(_conhecidas, imagem.caminho, imagem, IMAGENS_CONHECIDAS)
 
 
 # ---------------------------------------------------------------------------
@@ -241,27 +255,35 @@ async def _consultar(caminho: str, validade_s: float, **parametros) -> dict:
 async def radar_api(produto: str) -> list[Imagem]:
     if produto not in PRODUTOS_RADAR:
         raise ValueError(produto)
-    return converter_radar(await _consultar(f'radar/{produto}', RADAR_CACHE_S))
+    imagens = converter_radar(await _consultar(f'radar/{produto}', RADAR_CACHE_S))
+    _conhecer(imagens)
+    return imagens
 
 
 async def satelite(tipo: str) -> Imagem | None:
     if tipo not in SATELITES:
         raise ValueError(tipo)
-    return converter_satelite(await _consultar(f'satelite/{tipo}', SATELITE_CACHE_S))
+    imagem = converter_satelite(await _consultar(f'satelite/{tipo}', SATELITE_CACHE_S))
+    _conhecer([imagem] if imagem else [])
+    return imagem
 
 
 async def radar_quadros(produto: str) -> list[QuadroRadar]:
     if produto not in PRODUTOS_RADAR:
         raise ValueError(produto)
     dados = await _consultar(f'radar/{produto}', RADAR_CACHE_S, anima=RADAR_QUADROS_MAX)
-    return converter_radar_quadros(dados)
+    quadros = converter_radar_quadros(dados)
+    _conhecer(i for q in quadros for i in q.imagens)
+    return quadros
 
 
 async def satelite_quadros(tipo: str, quantos: int) -> list[Imagem]:
     if tipo not in SATELITES:
         raise ValueError(tipo)
     quantos = max(1, min(quantos, SATELITE_QUADROS_MAX))
-    return converter_satelite_quadros(await _consultar(f'satelite/{tipo}', SATELITE_CACHE_S, anima=quantos))
+    imagens = converter_satelite_quadros(await _consultar(f'satelite/{tipo}', SATELITE_CACHE_S, anima=quantos))
+    _conhecer(imagens)
+    return imagens
 
 
 # ---------------------------------------------------------------------------
@@ -394,11 +416,21 @@ def imagem_raios(chave: str) -> tuple[int, bytes, str]:
     return 200, *_cache_img[chave_img]
 
 
-async def buscar_imagem(caminho: str, sul: float, norte: float, dbz_min: int = 0) -> tuple[int, bytes, str]:
-    """Imagem reprojetada (e filtrada, no radar) para o navegador. Devolve (status, corpo, tipo)."""
-    if not caminho_valido(caminho) or not (-85 < sul < norte < 85) or not 0 <= dbz_min <= 75:
+async def buscar_imagem(caminho: str, dbz_min: int = 0) -> tuple[int, bytes, str]:
+    """Imagem reprojetada (e filtrada, no radar) para o navegador. Devolve (status, corpo, tipo).
+
+    Só imagens que a API listou (`_conhecidas`); a área vem de lá. Depois de reiniciar o
+    servidor, as camadas consultam a API de novo antes de pedir imagens.
+    """
+    if not caminho_valido(caminho) or not 0 <= dbz_min <= 75:
         return 400, b'pedido recusado', 'text/plain'
-    chave = (caminho, sul, norte, dbz_min)
+    imagem = _conhecidas.get(caminho)
+    if imagem is None:
+        return 404, b'imagem desconhecida', 'text/plain'
+    sul, norte = imagem.sul, imagem.norte
+    if not -85 < sul < norte < 85:
+        return 502, b'area invalida na resposta da REDEMET', 'text/plain'
+    chave = (caminho, dbz_min)
     if chave in _cache_img:
         return 200, *_cache_img[chave]
     png = await png_original(caminho)
@@ -474,6 +506,6 @@ async def preparar(imagens: list[tuple[Imagem, int]], simultaneas: int = 8) -> N
 
     async def uma(imagem: Imagem, dbz: int) -> None:
         async with limite:
-            await buscar_imagem(imagem.caminho, imagem.sul, imagem.norte, dbz)
+            await buscar_imagem(imagem.caminho, dbz)
 
     await asyncio.gather(*(uma(i, d) for i, d in imagens))

@@ -22,7 +22,7 @@ class LinhaDoTempo:
         self.anim = a = camadas_.animacao
         with area.barra_tempo:
             self.botao_tocar = ui.button(icon='play_arrow', on_click=a.alternar) \
-                .props('flat dense round color=white').tooltip('Animar / pausar')
+                .props('flat dense round color=white').tooltip('Animar / pausar').mark('animacao-tocar')
             self.botao_antes = ui.button(icon='skip_previous', on_click=lambda: a.andar(-1)) \
                 .props('flat dense round size=sm color=grey-4').tooltip('Passo anterior (10 min)')
             self.botao_depois = ui.button(icon='skip_next', on_click=lambda: a.andar(1)) \

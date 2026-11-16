@@ -46,7 +46,7 @@ def test_converter_satelite():
 def test_url_e_caminhos():
     img = redemet.Imagem('radar/2026/11/13/be/maxcappi/maps/2026-11-13--16:08:07.png', -5, 2, -52, -45, None)
     assert img.url() == ('/redemet/imagem?c=radar%2F2026%2F11%2F13%2Fbe%2Fmaxcappi%2Fmaps%2F'
-                         '2026-11-13--16%3A08%3A07.png&s=-5&n=2')
+                         '2026-11-13--16%3A08%3A07.png')                  # sem a área: o servidor sabe
     assert img.url(20).endswith('&dbz=20')
     assert redemet.caminho_valido(img.caminho)
     for ruim in ('radar/../etc/passwd.png', '/radar/a.png', 'radar/a.jpg', 'outra/a.png', 'radar/a b.png'):
@@ -64,10 +64,34 @@ def test_reprojetar_para_mercator():
     assert saida[30, 0, 0] == 35
 
 
-def test_buscar_imagem_recusa_pedidos_estranhos():
-    for args in [('../segredo.png', -5, 2), ('radar/a.png', 2, -5), ('radar/a.png', -5, 2, 99)]:
+def test_buscar_imagem_recusa_pedidos_estranhos(monkeypatch):
+    monkeypatch.setattr(redemet, '_conhecidas', {})
+    for args in [('../segredo.png',), ('radar/a.png', 99)]:
         status, _, _ = asyncio.run(redemet.buscar_imagem(*args))
         assert status == 400, args
+    assert asyncio.run(redemet.buscar_imagem('radar/a.png'))[0] == 404     # a API não listou
+    redemet._conhecer([redemet.Imagem('radar/b.png', 2, -5, 0, 1, None)])   # área impossível
+    assert asyncio.run(redemet.buscar_imagem('radar/b.png'))[0] == 502
+
+
+def test_buscar_imagem_usa_a_area_que_a_api_deu(monkeypatch):
+    monkeypatch.setattr(redemet, '_conhecidas', {})
+    monkeypatch.setattr(redemet, '_cache_img', {})
+    pedidos = []
+
+    async def png(caminho):
+        return b'png'
+
+    def preparar(png_, caminho, sul, norte, dbz):
+        pedidos.append((caminho, sul, norte, dbz))
+        return b'pronta', 'image/png'
+
+    monkeypatch.setattr(redemet, 'png_original', png)
+    monkeypatch.setattr(redemet, '_preparar', preparar)
+    redemet._conhecer([redemet.Imagem('radar/a.png', -5, 2, -52, -45, None)])
+    assert asyncio.run(redemet.buscar_imagem('radar/a.png', 20)) == (200, b'pronta', 'image/png')
+    assert asyncio.run(redemet.buscar_imagem('radar/a.png', 20))[0] == 200   # do cache
+    assert pedidos == [('radar/a.png', -5, 2, 20)]
 
 
 def test_consulta_sem_produto_devolve_dict_vazio(monkeypatch):

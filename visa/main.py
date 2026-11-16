@@ -59,8 +59,8 @@ async def radar_wms(request: Request) -> Response:
 
 
 @app.get('/redemet/imagem')
-async def redemet_imagem(c: str, s: float, n: float, dbz: int = 0) -> Response:
-    status, conteudo, tipo = await redemet.buscar_imagem(c, s, n, dbz)
+async def redemet_imagem(c: str, dbz: int = 0) -> Response:
+    status, conteudo, tipo = await redemet.buscar_imagem(c, dbz)
     cabecalhos = {'Cache-Control': 'max-age=3600'} if status == 200 else {}   # o caminho já tem a data
     return Response(conteudo, status_code=status, media_type=tipo, headers=cabecalhos)
 
