@@ -194,7 +194,9 @@ def test_regra_proximidade():
     dentro = Aviao('C', 0.05, 0.05, 90)
     conflitos = p.calcular([perto, longe, dentro], [_nucleo()], T0, p.PROXIMIDADE)
     assert [c.chave for c in conflitos] == ['A']
-    assert conflitos[0].minutos == p.HORIZONTE_MIN and (conflitos[0].lat, conflitos[0].lon) == (0.05, -0.35)
+    c = conflitos[0]
+    assert c.minutos == p.HORIZONTE_MIN and (c.lat0, c.lon0) == (0.05, -0.35)
+    assert (c.lat, c.lon) == pytest.approx((0.05, 0.05))              # o "encontro" é a célula do núcleo
 
 
 def test_para_a_tela_esconde_confianca_baixa():
@@ -205,12 +207,12 @@ def test_para_a_tela_esconde_confianca_baixa():
 
 # --- verificação --------------------------------------------------------------
 
-def _conflito(chave='A', minutos=5, quando=T0):
-    return p.Conflito(chave, chave, 350, minutos, 0, 0, 0, 0, _nucleo(), p.ALTA, quando)
+def _conflito(chave='A', minutos=5, quando=T0, encontro=(0.05, 0.05), nucleo=None):
+    return p.Conflito(chave, chave, 350, minutos, *encontro, 0, 0, nucleo or _nucleo(), p.ALTA, quando)
 
 
 NO_NUCLEO = (0.05, 0.05)           # posição dentro do núcleo de _nucleo()
-LONGE = (3.0, 3.0)                 # área de risco a ~400 km do núcleo previsto
+LONGE = (3.0, 3.0)                 # área de risco a ~400 km do ponto de encontro previsto
 
 
 def test_verificador_acerto_falso_indeterminado_e_nao_previsto():
@@ -218,7 +220,7 @@ def test_verificador_acerto_falso_indeterminado_e_nao_previsto():
     assert v.passo(T0, [], {'X'}, {'X': LONGE}) == []              # 1º minuto: X já estava em risco
     ev = v.passo(T0, [_conflito('A'), _conflito('B'), _conflito('C')], {'A', 'B', 'C', 'X'}, {'X': LONGE})
     assert [e['tipo'] for e in ev] == ['alerta'] * 3
-    assert all(e['regra'] == p.FABIA for e in ev)
+    assert all(e['regra'] == p.FABIA and e['verificacao'] == p.VERIFICACAO for e in ev)
     assert v.passo(T0 + timedelta(minutes=1), [_conflito('A')], {'A', 'B', 'C'}, {}) == []   # nada novo
     ev = v.passo(T0 + timedelta(minutes=4), [], {'A', 'B', 'C', 'D'}, {'A': NO_NUCLEO, 'D': LONGE})
     assert [(e['tipo'], e['aeronave']) for e in ev] == [('acerto', 'A'), ('nao_previsto', 'D')]
@@ -228,15 +230,15 @@ def test_verificador_acerto_falso_indeterminado_e_nao_previsto():
     assert v.pendentes == {}
 
 
-def test_area_de_risco_longe_do_nucleo_previsto_nao_e_acerto():
+def test_area_de_risco_longe_do_ponto_previsto_nao_e_acerto():
     v = p.Verificador()
     v.passo(T0, [], {'A'}, {})
     v.passo(T0, [_conflito('A', minutos=10)], {'A'}, {})
     ev = v.passo(T0 + timedelta(minutes=3), [], {'A'}, {'A': LONGE})
-    assert ev == [{'tipo': 'nao_previsto', 'regra': p.FABIA, 'quando': ev[0]['quando'], 'aeronave': 'A',
-                   'entrada': list(LONGE), 'alerta_pendente': True}]
+    assert ev == [{'tipo': 'nao_previsto', 'regra': p.FABIA, 'verificacao': p.VERIFICACAO, 'quando': ev[0]['quando'],
+                   'aeronave': 'A', 'entrada': list(LONGE), 'alerta_pendente': True}]
     assert 'A' in v.pendentes                                        # o alerta continua valendo
-    ev = v.passo(T0 + timedelta(minutes=8), [], {'A'}, {'A': (0.05, 0.25)})    # ~22 km do núcleo, ainda em risco
+    ev = v.passo(T0 + timedelta(minutes=8), [], {'A'}, {'A': (0.05, 0.25)})    # ~22 km do ponto, ainda em risco
     assert [e['tipo'] for e in ev] == ['acerto']
 
 
@@ -283,4 +285,49 @@ def test_registrar_resumir_e_avaliar(tmp_path, capsys):
         f.write(json.dumps({'tipo': 'falso', 'quando': '2026-11-14T18:00:00+00:00'}) + '\n')
     p.avaliar(tmp_path, [])
     saida = capsys.readouterr().out
-    assert '  fabia        1 alertas · 1 acertos' in saida and '  antiga       0 alertas · 0 acertos · 1 falsos' in saida
+    assert f"  {'fabia':<18} 1 alertas · 1 acertos" in saida
+    assert f"  {'antiga':<18} 0 alertas · 0 acertos · 1 falsos" in saida
+
+
+def test_posicao_velha_nao_entra_na_previsao():
+    from types import SimpleNamespace
+    assert p.posicao_recente(SimpleNamespace(visto_em=1000.0), 1000.0 + p.POSICAO_MAX_S)
+    assert not p.posicao_recente(SimpleNamespace(visto_em=1000.0), 1001.0 + p.POSICAO_MAX_S)
+
+
+def test_acerto_e_julgado_pelo_ponto_previsto_nao_pelo_movimento_estimado():
+    # O núcleo "anda" 1°/10 min para o leste pela estimativa; a tempestade de verdade ficou parada.
+    # A entrada no ponto previsto é acerto, mesmo longe do núcleo movido; a entrada perto do
+    # núcleo movido, mas longe do ponto previsto, não é.
+    andando = _nucleo(ve=11.1)
+    v = p.Verificador()
+    v.passo(T0, [], {'A', 'B'}, {})
+    v.passo(T0, [_conflito('A', minutos=10, nucleo=andando), _conflito('B', minutos=10, nucleo=andando)],
+            {'A', 'B'}, {})
+    ev = v.passo(T0 + timedelta(minutes=10), [], {'A', 'B'}, {'A': NO_NUCLEO, 'B': (0.05, 1.05)})
+    assert [(e['tipo'], e['aeronave']) for e in ev] == [('acerto', 'A'), ('nao_previsto', 'B')]
+    assert ev[0]['distancia_km'] == 0 and ev[0]['distancia_nucleo_km'] == 111
+    assert ev[1]['alerta_pendente']
+
+
+def test_avaliar_separa_criterios_e_abre_por_confianca_e_antecedencia(tmp_path, capsys):
+    def ev(tipo, **extra):
+        return {'tipo': tipo, 'regra': p.FABIA, 'verificacao': p.VERIFICACAO, 'quando': '2026-11-18T12:00:00+00:00',
+                'confianca': p.ALTA, 'minutos': 4, **extra}
+    eventos = [ev('alerta'), ev('acerto'), ev('acerto'), ev('falso', confianca=p.BAIXA, minutos=25),
+               {'tipo': 'nao_previsto', 'regra': p.FABIA, 'verificacao': p.VERIFICACAO, 'alerta_pendente': True},
+               {'tipo': 'nao_previsto', 'regra': p.FABIA, 'verificacao': p.VERIFICACAO},
+               {'tipo': 'acerto', 'regra': p.FABIA, 'confianca': p.ALTA, 'minutos': 4}]      # 16 a 18/11
+    (tmp_path / '2026-11-18.jsonl').write_text(''.join(json.dumps(e) + '\n' for e in eventos))
+    r = p.resumir(Counter(acerto=2, falso=1, nao_previsto=2, nao_previsto_com_alerta=1))
+    assert (r['com_alerta'], r['sem_aviso'], r['deteccao'], r['aviso']) == (1, 1, 0.5, 0.75)
+    p.avaliar(tmp_path, [])
+    saida = capsys.readouterr().out
+    assert f"  {'fabia':<18} 1 alertas · 2 acertos · 1 falsos" in saida
+    assert '2 não previstos (1 com alerta, 1 sem aviso)' in saida and 'aviso 75%' in saida
+    assert f"  {'fabia·núcleo':<18} 0 alertas · 1 acertos" in saida
+    linhas = {linha.split('  ')[1].strip(): linha for linha in saida.splitlines() if linha.startswith('  ') and '%' in linha
+              and 'alertas' not in linha}
+    assert '100% de 2' in linhas['confiança alta'] and '0% de 1' in linhas['confiança baixa']
+    assert '100% de 2' in linhas['na tela (alta e média)']
+    assert '100% de 2' in linhas['0–5 min'] and '0% de 1' in linhas['21–30 min']

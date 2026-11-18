@@ -469,15 +469,33 @@ def _calcular(campos: list, quadro_raios: redemet.QuadroRaios | None) -> tuple[l
     return ordenar(lista_a), ordenar(lista_t), mapa_de_perigo(campos, ()), mapa_de_perigo([], quadro_raios.celulas)
 
 
-async def atualizar() -> None:
-    """Busca os quadros mais novos e recalcula (se algo mudou)."""
+# Os últimos quadros que cada fonte entregou. Se uma fonte falhar, a outra segue sendo calculada
+# com os quadros dela, e a que falhou fica com os últimos que deu: eles envelhecem e saem do
+# cálculo sozinhos (fontes_validas). Antes, os raios fora do ar paravam também o radar.
+_ultimos_quadros: dict[str, list] = {previsao.RADAR: [], previsao.RAIOS: []}
+
+
+async def _buscar_quadros(fonte: str, buscar, erros: list[str]) -> list:
     try:
-        quadros = await redemet.radar_quadros(PRODUTO_RADAR)
-        raios = await redemet.raios_quadros()
+        _ultimos_quadros[fonte] = await buscar()
     except redemet.Indisponivel as erro:
-        situacao.erro = str(erro)
+        erros.append(f'{fonte}: {erro}')
+    return _ultimos_quadros[fonte]
+
+
+async def atualizar() -> None:
+    """Busca os quadros mais novos e recalcula (se algo mudou).
+
+    Aqui, no laço do servidor, só a rede (a lista de quadros e os PNGs). Decodificar as
+    imagens, ler o dBZ e aplicar os filtros usa CPU e vai inteiro para uma thread
+    (`_processar`): no laço, isso congelaria a tela de todos os usuários.
+    """
+    erros: list[str] = []
+    quadros = await _buscar_quadros(previsao.RADAR, lambda: redemet.radar_quadros(PRODUTO_RADAR), erros)
+    raios = await _buscar_quadros(previsao.RAIOS, redemet.raios_quadros, erros)
+    situacao.erro = '; '.join(erros)    # a API respondeu: o aviso some já, mesmo sem quadro novo
+    if len(erros) == 2:
         return
-    situacao.erro = ''          # a API respondeu: o aviso some já, mesmo sem quadro novo
     if not aerodromos.situacao.aerodromos:
         await aerodromos.obter()
     ultimo_radar = quadros[-1] if quadros else None
@@ -486,28 +504,18 @@ async def atualizar() -> None:
     raios_quando = ultimo_raios.quando if ultimo_raios else None
     if (radar_quando, raios_quando) == (situacao.radar_quando, situacao.raios_quando) and situacao.versao:
         return
-    # Onde há eco em cada quadro (guardado compacto: só sim/não, ~20 KB por imagem)
-    mascaras: dict[str, list[np.ndarray]] = {}
-    for quadro in quadros:
-        for imagem in quadro.imagens:
-            if imagem.caminho not in _eco_cache:
-                bruta = await redemet.imagem_bruta(imagem)
-                if bruta is None:
-                    continue
-                cache.guardar(_eco_cache, imagem.caminho, (np.packbits(bruta[..., 3] > 0), bruta.shape[:2]),
-                              redemet.IMAGENS_EM_CACHE)
-            empacotada, forma = _eco_cache[imagem.caminho]
-            mascaras.setdefault(imagem.codigo, []).append(
-                np.unpackbits(empacotada)[:forma[0] * forma[1]].reshape(forma).astype(bool))
-    campos = await _campos(ultimo_radar, mascaras) if ultimo_radar else []
     # Quadros anteriores (10 a 40 min antes): só para medir o movimento dos núcleos
     radar_antes = previsao.anterior(quadros, ultimo_radar) if ultimo_radar else None
-    campos_antes = await _campos(radar_antes, mascaras) if radar_antes else []
     raios_antes = previsao.anterior(raios, ultimo_raios) if ultimo_raios else None
+    # PNGs que faltam: os das imagens ainda sem máscara de eco e os dos dois quadros usados
+    usados = [*(ultimo_radar.imagens if ultimo_radar else ()), *(radar_antes.imagens if radar_antes else ())]
+    pngs: dict[str, bytes] = {}
+    for imagem in [i for q in quadros for i in q.imagens if i.caminho not in _eco_cache] + usados:
+        if imagem.caminho not in pngs and (png := await redemet.png_original(imagem.caminho)) is not None:
+            pngs[imagem.caminho] = png
     inicio = time.monotonic()
-    lista_a, lista_t, perigo_radar, perigo_raios = await asyncio.to_thread(_calcular, campos, ultimo_raios)
-    await asyncio.to_thread(_nucleos, campos, campos_antes, radar_quando,
-                            radar_antes.quando if radar_antes else None, ultimo_raios, raios_antes)
+    lista_a, lista_t, perigo_radar, perigo_raios = await asyncio.to_thread(
+        _processar, quadros, pngs, ultimo_radar, radar_antes, ultimo_raios, raios_antes)
     log.info('impacto: %d aeródromos, %d TMAs, %d células de perigo (%.1f s)',
              len(lista_a), len(lista_t), len({**perigo_radar, **perigo_raios}), time.monotonic() - inicio)
     situacao.aerodromos, situacao.tmas = lista_a, lista_t
@@ -516,19 +524,50 @@ async def atualizar() -> None:
     situacao.versao += 1
 
 
-async def _campos(quadro: redemet.QuadroRadar, mascaras: dict) -> list:
+def _decodificar(png: bytes | None) -> np.ndarray | None:
+    try:
+        return redemet.decodificar(png) if png is not None else None
+    except OSError:                     # PNG corrompido
+        return None
+
+
+def _processar(quadros: list, pngs: dict[str, bytes], ultimo_radar, radar_antes,
+               ultimo_raios, raios_antes) -> tuple[list, list, dict, dict]:
+    """Todo o trabalho de CPU de um ciclo (roda numa thread): máscaras de eco, campos de dBZ,
+    impacto e núcleos. `pngs`: caminho -> PNG original, já baixado no laço."""
+    # Onde há eco em cada quadro (guardado compacto: só sim/não, ~20 KB por imagem)
+    mascaras: dict[str, list[np.ndarray]] = {}
+    for quadro in quadros:
+        for imagem in quadro.imagens:
+            if imagem.caminho not in _eco_cache:
+                bruta = _decodificar(pngs.get(imagem.caminho))
+                if bruta is None:
+                    continue
+                cache.guardar(_eco_cache, imagem.caminho, (np.packbits(bruta[..., 3] > 0), bruta.shape[:2]),
+                              redemet.IMAGENS_EM_CACHE)
+            empacotada, forma = _eco_cache[imagem.caminho]
+            mascaras.setdefault(imagem.codigo, []).append(
+                np.unpackbits(empacotada)[:forma[0] * forma[1]].reshape(forma).astype(bool))
+    campos = _campos(ultimo_radar, pngs, mascaras) if ultimo_radar else []
+    campos_antes = _campos(radar_antes, pngs, mascaras) if radar_antes else []
+    resultado = _calcular(campos, ultimo_raios)
+    _nucleos(campos, campos_antes, ultimo_radar.quando if ultimo_radar else None,
+             radar_antes.quando if radar_antes else None, ultimo_raios, raios_antes)
+    return resultado
+
+
+def _campos(quadro: redemet.QuadroRadar, pngs: dict[str, bytes], mascaras: dict) -> list:
     """(imagem, dBZ por pixel) de cada estação do quadro, sem a antena e sem o eco de solo."""
     campos = []
     for imagem in quadro.imagens:
-        bruta = await redemet.imagem_bruta(imagem)
+        bruta = _decodificar(pngs.get(imagem.caminho))
         if bruta is None:
             continue
         campo = apagar_centro(dbz_da_imagem(bruta), imagem)
         fixo = eco_fixo(mascaras.get(imagem.codigo, []))
         if fixo is not None and fixo.shape == campo.shape:
             campo[fixo] = np.nan
-        campo = await asyncio.to_thread(apagar_interferencia, campo, imagem)
-        campos.append((imagem, campo))
+        campos.append((imagem, apagar_interferencia(campo, imagem)))
     return campos
 
 
@@ -547,8 +586,12 @@ async def prever() -> None:
         previsao.pausar(agora, f'sem quadro recente de radar (até {RADAR_VALIDO_MIN} min) '
                                f'nem de raios (até {RAIOS_VALIDO_MIN} min)')
         return
-    # Cópia da lista aqui, no laço do servidor: o Pusher altera o dicionário enquanto a conta roda
-    elegiveis = [a for a in list(aeronaves.trafego.aeronaves.values()) if previsao.em_rota(a)]
+    # Cópia da lista aqui, no laço do servidor: o Pusher altera o dicionário enquanto a conta roda.
+    # Só posições recentes: a aeronave fica no mapa até 5 min depois de sumir, mas projetá-la
+    # dali como se fosse agora erra dezenas de km (e a contaria como "presente" na verificação).
+    relogio = time.monotonic()
+    elegiveis = [a for a in list(aeronaves.trafego.aeronaves.values())
+                 if previsao.posicao_recente(a, relogio) and previsao.em_rota(a)]
     em_perigo = {a.chave: (a.lat, a.lon) for a in elegiveis if alerta_da_aeronave(a.lat, a.lon)}
     await asyncio.to_thread(previsao.ciclo, agora, elegiveis, em_perigo, situacao.fontes)
 

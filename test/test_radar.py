@@ -142,6 +142,41 @@ def test_proxy_so_repassa_camadas_do_mapa():
     assert asyncio.run(radar.buscar_tile({'request': 'GetCapabilities'}))[0] == 400
 
 
+def test_proxy_aceita_os_pedidos_que_o_mapa_faz():
+    import raios
+    import wifs
+    tile = {'service': 'WMS', 'request': 'GetMap', 'version': '1.1.1', 'styles': '', 'format': 'image/png',
+            'transparent': 'true', 'width': '256', 'height': '256', 'srs': 'EPSG:3857',
+            'bbox': '-5009377.085697311,-2504688.542848654,-3757032.814272985,-1252344.271424327'}
+    radar_ = {**tile, 'layers': 'redemet:cappi_250km', 'TIME': radar.janela_de_tempo(), 'ELEVATION': '3',
+              'CQL_FILTER': radar.filtro_cql(['al', 'be']), 'dbz_min': '20'}
+    assert radar.limpar_parametros(radar_) == radar_
+    assert radar.limpar_parametros({**radar_, 'CQL_FILTER': 'INCLUDE'})
+    raios_ = {**tile, 'layers': 'redemet:lightning_data',
+              **raios.parametros(raios.agora(), 'tempo', 10)}
+    assert radar.limpar_parametros(raios_) == raios_
+    wifs_ = {**tile, **{k: str(v).lower() if isinstance(v, bool) else str(v)
+                        for k, v in wifs.opcoes_wms('temperatura', 240).items()
+                        if k not in ('opacity', 'zIndex', 'attribution')}}
+    assert radar.limpar_parametros(wifs_) == wifs_
+    legenda = dict(p.split('=', 1) for p in wifs.url_legenda('turbulencia').split('?', 1)[1].split('&'))
+    assert radar.limpar_parametros(legenda) == legenda
+
+
+def test_proxy_recusa_valores_fora_do_formato_e_descarta_o_resto():
+    base = {'request': 'GetMap', 'layers': 'redemet:maxcappi_400km', 'width': '256', 'height': '256'}
+    assert radar.limpar_parametros({**base, 'SLD_BODY': '<StyledLayerDescriptor/>'}) == base
+    assert radar.limpar_parametros({**base, 'width': '8000'}) is None          # imagem enorme
+    assert radar.limpar_parametros({**base, 'height': '0'}) is None
+    assert radar.limpar_parametros({**base, 'dbz_min': 'abc'}) is None         # antes: erro 500
+    assert radar.limpar_parametros({**base, 'dbz_min': '99'}) is None
+    assert radar.limpar_parametros({**base, 'format': 'application/openlayers'}) is None
+    assert radar.limpar_parametros({**base, 'CQL_FILTER': "radar_code IN ('al') OR 1=1"}) is None
+    assert radar.limpar_parametros({**base, 'CQL_FILTER': "radar_code IN ('zz')"}) is None
+    assert radar.limpar_parametros({**base, 'env': 'radius:1;x:${java}'}) is None
+    assert asyncio.run(radar.buscar_tile({**base, 'width': '8000'}))[0] == 400
+
+
 def test_legenda_do_radar():
     assert radar.LEGENDA[0] == (0, '#75ffff')
     assert radar.LEGENDA[-1] == (75, '#ffffff')

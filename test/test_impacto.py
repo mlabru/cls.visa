@@ -142,3 +142,102 @@ def test_raios_de_interferencia_saem_e_chuva_fica():
     apagar = impacto.raios_de_interferencia(campo, lats, lons, lat0, lon0)
     assert apagar[raio].mean() > 0.8
     assert not apagar[redonda].any() and not apagar[alongada].any()
+
+
+def _png_eco(dbz_rgb=(254, 0, 0), tamanho=20) -> bytes:
+    """PNG de uma estação toda com eco de uma cor (254, 0, 0 = 50 dBZ)."""
+    import io
+
+    from PIL import Image
+    img = np.zeros((tamanho, tamanho, 4), np.uint8)
+    img[...] = (*dbz_rgb, 255)
+    saida = io.BytesIO()
+    Image.fromarray(img).save(saida, 'PNG')
+    return saida.getvalue()
+
+
+def _sem_rede(monkeypatch):
+    """atualizar() sem rede nem arquivos: aeródromos, TMAs, vento e estado zerados."""
+    import previsao
+    import vento
+
+    async def nenhum():
+        return []
+
+    monkeypatch.setattr(impacto.aerodromos, 'obter', nenhum)
+    monkeypatch.setattr(impacto.aerodromos.situacao, 'aerodromos', [])
+    monkeypatch.setattr(impacto, 'carregar_tmas', list)
+    monkeypatch.setattr(vento, 'deslocamento', lambda agora: None)
+    monkeypatch.setattr(previsao, 'situacao', previsao.Situacao())
+    monkeypatch.setattr(impacto, 'situacao', impacto.Situacao())
+    monkeypatch.setattr(impacto, '_eco_cache', {})
+    monkeypatch.setattr(impacto, '_ultimos_quadros', {previsao.RADAR: [], previsao.RAIOS: []})
+
+
+def test_raios_fora_nao_param_o_radar(monkeypatch):
+    # Antes, radar e raios estavam no mesmo try: sem raios, o radar também deixava de ser
+    # atualizado e, 45 min depois, o FAB.ia parava por "dado velho" com o radar funcionando.
+    import threading
+    from datetime import UTC, datetime
+    _sem_rede(monkeypatch)
+    quando = datetime(2026, 11, 18, 12, tzinfo=UTC)
+    imagem = redemet.Imagem('radar/x.png', -24.0, -23.0, -47.0, -46.0, quando)
+
+    async def radar_ok(_):
+        return [redemet.QuadroRadar(quando, (imagem,))]
+
+    async def raios_fora():
+        raise redemet.Indisponivel('API da REDEMET indisponível (ConnectError)')
+
+    async def png(_):
+        return _png_eco()
+
+    linhas = []
+    original = redemet.decodificar
+    monkeypatch.setattr(redemet, 'decodificar', lambda b: linhas.append(threading.current_thread()) or original(b))
+    monkeypatch.setattr(redemet, 'radar_quadros', radar_ok)
+    monkeypatch.setattr(redemet, 'raios_quadros', raios_fora)
+    monkeypatch.setattr(redemet, 'png_original', png)
+    asyncio.run(impacto.atualizar())
+    s = impacto.situacao
+    assert s.erro.startswith('raios: ') and s.versao == 1
+    assert s.radar_quando == quando and s.raios_quando is None
+    assert s.perigo_radar and not s.perigo_raios
+    # o PNG é decodificado fora do laço do servidor (DECISOES 4.2)
+    assert linhas and threading.main_thread() not in linhas
+
+
+def test_fonte_que_falha_fica_com_os_ultimos_quadros(monkeypatch):
+    from datetime import UTC, datetime
+    _sem_rede(monkeypatch)
+    quando = datetime(2026, 11, 18, 12, tzinfo=UTC)
+    quadro = redemet.QuadroRaios(quando, ((-20.05, -40.05, 3),))
+    respostas = [[quadro], redemet.Indisponivel('fora')]
+
+    async def raios():
+        r = respostas.pop(0)
+        if isinstance(r, Exception):
+            raise r
+        return r
+
+    async def vazio(_):
+        return []
+
+    monkeypatch.setattr(redemet, 'radar_quadros', vazio)
+    monkeypatch.setattr(redemet, 'raios_quadros', raios)
+    asyncio.run(impacto.atualizar())
+    asyncio.run(impacto.atualizar())         # os raios falham: ficam os do quadro anterior
+    s = impacto.situacao
+    assert s.raios_quando == quando and s.perigo_raios and s.erro == 'raios: fora'
+
+
+def test_ambas_as_fontes_fora_nao_recalcula(monkeypatch):
+    _sem_rede(monkeypatch)
+
+    async def fora(*_):
+        raise redemet.Indisponivel('fora')
+
+    monkeypatch.setattr(redemet, 'radar_quadros', fora)
+    monkeypatch.setattr(redemet, 'raios_quadros', fora)
+    asyncio.run(impacto.atualizar())
+    assert impacto.situacao.versao == 0 and impacto.situacao.erro == 'radar: fora; raios: fora'

@@ -267,6 +267,72 @@ def pedido_permitido(parametros: dict[str, str]) -> bool:
     return all(CAMADAS_PERMITIDAS.fullmatch(c) for c in camadas)
 
 
+# Parâmetros que o mapa manda (Leaflet + as nossas opções em observacao.py, raios.py, wifs.py e
+# nas legendas) e o formato aceito para cada um. Qualquer outro parâmetro é descartado (SLD_BODY,
+# SLD, FORMAT_OPTIONS... nunca chegam ao GeoServer); um valor fora do formato recusa o pedido.
+# O CQL_FILTER não vem daqui: é conferido à parte (`_cql_permitido`).
+TAMANHO_MAX_PX = 1024           # tiles do Leaflet: 256 (512 em tela de alta densidade)
+_NUMERO = r'-?\d+(\.\d+)?([eE][-+]?\d+)?'
+_INSTANTE = r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z'
+PARAMETROS_WMS = {
+    'service': re.compile(r'WMS', re.IGNORECASE),
+    'request': re.compile(r'GetMap|GetLegendGraphic', re.IGNORECASE),
+    'version': re.compile(r'1\.1\.1|1\.3\.0'),
+    'layers': re.compile(r'[\w:,]+'),             # o nome da camada é conferido em pedido_permitido
+    'layer': re.compile(r'[\w:]+'),
+    'styles': re.compile(r'((redemet:)?\w+)?'),
+    'style': re.compile(r'((redemet:)?\w+)?'),
+    'format': re.compile(r'image/png'),
+    'transparent': re.compile(r'true|false', re.IGNORECASE),
+    'width': re.compile(r'\d{1,4}'),
+    'height': re.compile(r'\d{1,4}'),
+    'srs': re.compile(r'EPSG:\d{4,6}'),
+    'crs': re.compile(r'EPSG:\d{4,6}'),
+    'bbox': re.compile(rf'{_NUMERO}(,{_NUMERO}){{3}}'),
+    'time': re.compile(rf'current|{_INSTANTE}(/{_INSTANTE})?'),
+    'elevation': re.compile(r'\d{1,5}'),
+    'env': re.compile(r'radius:\d{1,7}(;t\d{1,2}:\d{8}T\d{6}Z){0,5}'),        # raios.parametros
+    'legend_options': re.compile(r'[\w:;.]{1,200}'),                         # legendas (wifs, raios)
+    'dbz_min': re.compile(r'\d{1,2}'),
+}
+
+
+def _cql_permitido(cql: str) -> bool:
+    """Só o que `filtro_cql` produziria: 'INCLUDE' ou a lista de radares conhecidos."""
+    if cql == 'INCLUDE':
+        return True
+    codigos = re.fullmatch(r"radar_code IN \('(\w+(?:','\w+)*)'\)", cql)
+    return bool(codigos) and filtro_cql(codigos.group(1).split("','")) == cql
+
+
+def limpar_parametros(parametros: dict[str, str]) -> dict[str, str] | None:
+    """Os parâmetros que podem seguir para o GeoServer, ou None se o pedido deve ser recusado.
+
+    O navegador monta a URL do tile, então nada do que vem nela é confiável: cada valor tem
+    de ter o formato que o nosso mapa usa, e o tamanho da imagem tem limite (sem ele, um
+    WIDTH=8000&HEIGHT=8000 faria o GeoServer e o filtro de dBZ gerarem centenas de MB).
+    """
+    if not pedido_permitido(parametros):
+        return None
+    limpos = {}
+    for nome, valor in parametros.items():
+        chave = nome.lower()
+        if chave == 'cql_filter':
+            if not _cql_permitido(valor):
+                return None
+        elif chave in PARAMETROS_WMS:
+            if not PARAMETROS_WMS[chave].fullmatch(valor):
+                return None
+            if chave in ('width', 'height') and not 1 <= int(valor) <= TAMANHO_MAX_PX:
+                return None
+            if chave == 'dbz_min' and int(valor) > 75:
+                return None
+        else:
+            continue                    # parâmetro que o mapa não usa: descartado
+        limpos[nome] = valor
+    return limpos
+
+
 def geoserver_fora() -> bool:
     """True enquanto o GeoServer está marcado como inacessível (disjuntor ou verificação de fundo)."""
     return time.monotonic() < estado.indisponivel_ate
@@ -275,15 +341,15 @@ def geoserver_fora() -> bool:
 async def buscar_tile(parametros: dict[str, str]) -> tuple[int, bytes, str]:
     """Repassa um GetMap ao GeoServer. `dbz_min` (nosso) é retirado e aplicado aqui.
 
-    Devolve (status HTTP, conteúdo, tipo).
+    Só segue o que `limpar_parametros` aceita. Devolve (status HTTP, conteúdo, tipo).
     """
-    if not pedido_permitido(parametros):
+    parametros = limpar_parametros(parametros)
+    if parametros is None:
         return 400, b'camada ou pedido nao permitido', 'text/plain'
     if geoserver_fora():
         return 503, b'GeoServer inacessivel (aguardando nova tentativa)', 'text/plain'
 
-    parametros = dict(parametros)
-    limiar = int(float(parametros.pop('dbz_min', 0) or 0))
+    limiar = int(parametros.pop('dbz_min', 0) or 0)
     try:
         resposta = await _cliente.get(config.GEOSERVER_WMS, params=parametros)
     except httpx.HTTPError as erro:

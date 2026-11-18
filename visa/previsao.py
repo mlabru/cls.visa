@@ -21,7 +21,8 @@ Tudo determinístico (sem IA), em três passos:
    menos de RAIO_CONFLITO_KM de uma célula do núcleo é o conflito.
 
 Cada alerta é registrado (config.PREVISAO_DIR, um arquivo JSON Lines por dia) junto com o
-que aconteceu depois — a aeronave entrou numa área de risco perto do núcleo PREVISTO? — para
+que aconteceu depois — a aeronave entrou numa área de risco observada perto do ponto de
+encontro PREVISTO? — para
 medir acertos e alarmes falsos desde o primeiro dia. Duas regras simples rodam junto, só no
 registro, para comparação (REGRAS): o mesmo cálculo com o núcleo parado, e "aeronave a menos
 de PROXIMIDADE_KM de um núcleo". Se o FAB.ia não ganhar delas, a extrapolação não está
@@ -60,17 +61,22 @@ HORIZONTE_MIN = 30             # até quanto tempo à frente se procura conflito
 RAIO_CONFLITO_KM = 10          # distância ao centro da célula que conta como "dentro" (meia célula ≈ 5,5 km + folga)
 FL_MIN = 100                   # só aeronaves em rota: abaixo disso, subida e descida tornam a reta inútil
 VELOCIDADE_MIN_KT = 120        # helicópteros e aeronaves paradas ficam de fora
+POSICAO_MAX_S = 60             # posição mais velha que isso não entra (a 450 kt, 60 s ≈ 14 km)
 VELOCIDADE_MAX_NUCLEO_KMH = 120    # deslocamento maior que isso entre quadros = par errado
 VIZINHANCA_KM = 300            # de onde vem o movimento "estimado" de um núcleo sem par
 INTERVALO_MIN, INTERVALO_MAX = 10, 40   # minutos entre o quadro atual e o anterior usado no movimento
 NUCLEO_VELHO_MIN = 25          # quadro mais velho que isso: a confiança cai um nível
 NUCLEO_DESCARTE_MIN = 60       # quadro mais velho que isso: núcleo ignorado
 TOLERANCIA_MIN = 10            # o alerta "vence" este tempo depois do encontro previsto
-# Acerto: a aeronave está numa área de risco a até ACERTO_KM de uma célula do núcleo previsto
-# (movido até aquele minuto). A área de risco dos raios inclui as células vizinhas (~11 km a
-# mais) e o movimento erra alguns km: 30 km. Entrada em área de risco longe do núcleo previsto
-# não é acerto: é "não previsto" (com `alerta_pendente`), e o alerta continua valendo.
+# Acerto: a aeronave entra numa área de risco OBSERVADA (o mapa de risco dos quadros que chegam
+# depois do alerta) a até ACERTO_KM do PONTO DE ENCONTRO que a própria regra previu. Nenhuma
+# regra é julgada pelo movimento estimado: antes (até 18/11), a referência era o núcleo movido
+# pela estimativa da FABIA, e uma estimativa errada era conferida contra ela mesma. A área de
+# risco dos raios inclui as células vizinhas (~11 km a mais) e a aeronave a 15 km/min erra o
+# ponto com 1–2 min de diferença: 30 km. Entrada longe do ponto previsto não é acerto: é
+# "não previsto" (com `alerta_pendente`), e o alerta continua valendo.
 ACERTO_KM = 30
+VERIFICACAO = 'encontro'       # gravado em cada evento: o `avaliar` separa os registros da regra anterior
 NUCLEO_RADAR_MIN_CELULAS = 2   # núcleo de radar de 1 célula: em 15/11, 94 acertos × 172 falsos
 DIVERGENCIA_KMH = 50           # par medido que difere mais que isso do vento = par errado
 MAX_CONFLITOS = 30             # na tela: no painel FAB.ia e no mapa (os mais próximos no tempo)
@@ -255,8 +261,8 @@ class Conflito:
     indicativo: str
     fl: int | None
     minutos: int                # até o encontro, contados de `calculado`
-    lat: float                  # onde a aeronave estará no encontro
-    lon: float
+    lat: float                  # ponto de encontro: onde a aeronave estará (PROXIMIDADE: a célula
+    lon: float                  # do núcleo mais perto dela). É a referência do acerto.
     lat0: float                 # onde estava no cálculo
     lon0: float
     nucleo: Nucleo
@@ -272,6 +278,15 @@ class Conflito:
 def para_a_tela(conflitos: list[Conflito], mostrar_baixa: bool) -> list[Conflito]:
     """Os conflitos que a pessoa quer ver: os de confiança baixa só se pediu (preferência fabia_baixa)."""
     return conflitos if mostrar_baixa else [c for c in conflitos if c.confianca != BAIXA]
+
+
+def posicao_recente(a, relogio: float) -> bool:
+    """A posição da aeronave é de agora? `relogio` e `a.visto_em` em time.monotonic().
+
+    Sem isto, uma aeronave que saiu da cobertura (e fica até AERONAVE_EXPIRA_S no tráfego)
+    seria projetada da última posição como se fosse a atual: a 450 kt, 5 min são ~70 km.
+    """
+    return relogio - a.visto_em <= POSICAO_MAX_S
 
 
 def em_rota(a) -> bool:
@@ -333,7 +348,8 @@ def conflito_da_aeronave(a, lista: list[Nucleo], agora: datetime, parado: bool =
 def proximidade(a, lista: list[Nucleo], agora: datetime) -> Conflito | None:
     """Regra PROXIMIDADE (só para comparação): núcleo a menos de PROXIMIDADE_KM, em qualquer rumo.
 
-    O "encontro" é a posição atual e o prazo é o horizonte inteiro (HORIZONTE_MIN).
+    Sem rumo não há ponto de encontro: o "encontro" é a célula do núcleo (onde foi observada)
+    mais perto da aeronave, e o prazo é o horizonte inteiro (HORIZONTE_MIN).
     """
     melhor, menor = None, PROXIMIDADE_KM
     for n in lista:
@@ -346,7 +362,8 @@ def proximidade(a, lista: list[Nucleo], agora: datetime) -> Conflito | None:
             melhor, menor = n, d
     if melhor is None:
         return None
-    return Conflito(a.chave, a.indicativo, a.nivel_voo, HORIZONTE_MIN, a.lat, a.lon, a.lat, a.lon,
+    lat, lon = min(map(geo.centro, melhor.celulas), key=lambda c: geo.distancia_km(a.lat, a.lon, *c))
+    return Conflito(a.chave, a.indicativo, a.nivel_voo, HORIZONTE_MIN, lat, lon, a.lat, a.lon,
                     melhor, BAIXA, agora)
 
 
@@ -371,13 +388,15 @@ class Verificador:
     """Acompanha cada alerta de uma regra até o desfecho, minuto a minuto.
 
     - acerto: a aeronave está numa área de risco (impacto.alerta_da_aeronave) a até ACERTO_KM
-      do núcleo previsto, antes do prazo;
+      do ponto de encontro previsto (Conflito.lat/lon), antes do prazo;
     - falso: o prazo venceu, a aeronave ainda é vista e não acertou;
     - indeterminado: o prazo venceu e a aeronave sumiu (pousou, saiu da cobertura...), ou o
       cálculo parou por falta de dado recente (`interromper`);
     - não previsto: entrou numa área de risco sem acerto. Inclui tempestade que se formou em
-      cima dela, e a entrada numa área longe do núcleo previsto (`alerta_pendente`: o alerta
+      cima dela, e a entrada numa área longe do ponto previsto (`alerta_pendente`: o alerta
       continua valendo até o prazo).
+    O acerto guarda também `distancia_nucleo_km` (até o núcleo movido pela estimativa), só
+    como informação: a decisão não depende do movimento estimado.
     """
     regra: str = FABIA
     pendentes: dict[str, Conflito] = field(default_factory=dict)    # aeronave -> alerta em aberto
@@ -394,16 +413,18 @@ class Verificador:
         for chave in sorted(set(em_perigo) & set(self.pendentes)):
             alerta = self.pendentes[chave]
             lat, lon = em_perigo[chave]
-            distancia = alerta.nucleo.distancia_km(lat, lon, agora)
+            distancia = geo.distancia_km(lat, lon, alerta.lat, alerta.lon)
             if distancia <= ACERTO_KM:
                 del self.pendentes[chave]
                 acertaram.add(chave)
                 eventos.append(self._evento(Desfecho.ACERTO, agora, alerta,
                                             antecedencia_min=round((agora - alerta.calculado).total_seconds() / 60),
-                                            entrada=[round(lat, 3), round(lon, 3)], distancia_km=round(distancia)))
+                                            entrada=[round(lat, 3), round(lon, 3)], distancia_km=round(distancia),
+                                            distancia_nucleo_km=round(alerta.nucleo.distancia_km(lat, lon, agora))))
         for chave in sorted(set(em_perigo) - self.em_perigo - acertaram):
             lat, lon = em_perigo[chave]
-            evento = {'tipo': Desfecho.NAO_PREVISTO, 'regra': self.regra, 'quando': agora.isoformat(timespec='seconds'),
+            evento = {'tipo': Desfecho.NAO_PREVISTO, 'regra': self.regra, 'verificacao': VERIFICACAO,
+                      'quando': agora.isoformat(timespec='seconds'),
                       'aeronave': chave, 'entrada': [round(lat, 3), round(lon, 3)]}
             if chave in self.pendentes:
                 evento['alerta_pendente'] = True
@@ -428,7 +449,7 @@ class Verificador:
         return eventos
 
     def _evento(self, tipo: Desfecho, agora: datetime, c: Conflito, **extra) -> dict:
-        return _evento(tipo, agora, c, regra=self.regra, **extra)
+        return _evento(tipo, agora, c, regra=self.regra, verificacao=VERIFICACAO, **extra)
 
 
 def _evento(tipo: Desfecho, agora: datetime, c: Conflito, **extra) -> dict:
@@ -456,17 +477,28 @@ def registrar(eventos: list[dict], pasta: Path | None = None) -> None:
         log.warning('previsão: não consegui registrar (%s)', erro)
 
 
+COM_ALERTA = 'nao_previsto_com_alerta'   # chave extra na contagem do avaliar: não previsto com alerta_pendente
+
+
+def _taxa(a: int, b: int) -> float | None:
+    return round(a / (a + b), 2) if a + b else None
+
+
 def resumir(contagem: Counter) -> dict:
-    """Taxas a partir da contagem dos desfechos (None quando não há casos)."""
+    """Taxas a partir da contagem dos desfechos (None quando não há casos).
+
+    Os não previstos se dividem em `com_alerta` (havia um alerta em aberto para a aeronave, mas
+    ela entrou na área de risco longe do ponto previsto: aviso certo, lugar errado) e `sem_aviso`.
+    `aviso` conta os dois primeiros como avisados; `deteccao`, só os acertos.
+    """
     acertos, falsos, nao_previstos = contagem[Desfecho.ACERTO], contagem[Desfecho.FALSO], contagem[Desfecho.NAO_PREVISTO]
-
-    def taxa(a: int, b: int) -> float | None:
-        return round(a / (a + b), 2) if a + b else None
-
+    com_alerta = contagem[COM_ALERTA]
     return {'alertas': contagem[Desfecho.ALERTA], 'acertos': acertos, 'falsos': falsos,
             'indeterminados': contagem[Desfecho.INDETERMINADO], 'nao_previstos': nao_previstos,
-            'acerto': taxa(acertos, falsos),           # dos alertas com desfecho, quantos se confirmaram
-            'deteccao': taxa(acertos, nao_previstos)}  # das entradas em área de risco, quantas foram previstas
+            'com_alerta': com_alerta, 'sem_aviso': nao_previstos - com_alerta,
+            'acerto': _taxa(acertos, falsos),            # dos alertas com desfecho, quantos se confirmaram
+            'deteccao': _taxa(acertos, nao_previstos),   # das entradas em área de risco, quantas foram previstas
+            'aviso': _taxa(acertos + com_alerta, nao_previstos - com_alerta)}   # ... quantas tinham algum alerta
 
 
 # ---------------------------------------------------------------------------
@@ -565,6 +597,20 @@ def pausar(agora: datetime, motivo: str) -> None:
 # ---------------------------------------------------------------------------
 
 ANTIGA = 'antiga'      # registros de antes de 16/11/2026: acerto = qualquer área de risco (sem `regra`)
+NUCLEO = '·núcleo'     # registros de 16 a 18/11/2026: acerto conferido contra o núcleo movido (sem `verificacao`)
+ANTECEDENCIAS = ((0, 5), (6, 10), (11, 20), (21, HORIZONTE_MIN))    # faixas de minutos até o encontro
+
+
+def rotulo(e: dict) -> str:
+    """A regra do evento, marcada pelo critério de acerto com que foi conferida."""
+    regra = e.get('regra')
+    if regra is None:
+        return ANTIGA
+    return regra if e.get('verificacao') == VERIFICACAO else regra + NUCLEO
+
+
+def faixa(minutos: int) -> str:
+    return next(f'{a}–{b} min' for a, b in ANTECEDENCIAS if minutos <= b)
 
 
 def avaliar(pasta: Path, dias: list[str]) -> None:
@@ -573,29 +619,67 @@ def avaliar(pasta: Path, dias: list[str]) -> None:
         print(f'nenhum registro em {pasta} (o servidor grava a partir do primeiro alerta)')
         return
     total: dict[str, Counter] = {}
+    # (quadro, linha, regra) -> acertos e falsos, para as tabelas por confiança e antecedência
+    detalhe: dict[tuple[str, str, str], Counter] = {}
     for arquivo in arquivos:
         if not arquivo.exists():
             print(f'{arquivo.stem}: sem registro')
             continue
         por_regra: dict[str, Counter] = {}
         for linha in arquivo.read_text(encoding='utf-8').splitlines():
-            if linha.strip():
-                e = json.loads(linha)
-                por_regra.setdefault(e.get('regra', ANTIGA), Counter())[e['tipo']] += 1
+            if not linha.strip():
+                continue
+            e = json.loads(linha)
+            regra, tipo = rotulo(e), e['tipo']
+            contagem = por_regra.setdefault(regra, Counter())
+            contagem[tipo] += 1
+            if tipo == Desfecho.NAO_PREVISTO and e.get('alerta_pendente'):
+                contagem[COM_ALERTA] += 1
+            if tipo in (Desfecho.ACERTO, Desfecho.FALSO) and 'confianca' in e:
+                linhas = [('confiança', TEXTO_CONFIANCA.get(e['confianca'], e['confianca'])),
+                          ('antecedência', faixa(e['minutos']))]
+                if e['confianca'] != BAIXA:
+                    linhas.append(('confiança', 'na tela (alta e média)'))
+                for quadro, nome in linhas:
+                    detalhe.setdefault((quadro, nome, regra), Counter())[tipo] += 1
         print(arquivo.stem)
         for regra, contagem in _ordenadas(por_regra):
-            print(f'  {regra:<12} {_linha(resumir(contagem))}')
+            print(f'  {regra:<18} {_linha(resumir(contagem))}')
             total.setdefault(regra, Counter()).update(contagem)
     if len(arquivos) > 1:
         print('total')
         for regra, contagem in _ordenadas(total):
-            print(f'  {regra:<12} {_linha(resumir(contagem))}')
+            print(f'  {regra:<18} {_linha(resumir(contagem))}')
+    regras = [r for r, _ in _ordenadas(total) if r != ANTIGA]
+    for quadro in ('confiança', 'antecedência'):
+        nomes = list(dict.fromkeys(n for q, n, _ in sorted(detalhe, key=_ordem_detalhe) if q == quadro))
+        if not nomes:
+            continue
+        print(f'\nacerto por {quadro}'.ljust(26) + ''.join(f'{r:>20}' for r in regras))
+        for nome in nomes:
+            celulas = []
+            for r in regras:
+                c = detalhe.get((quadro, nome, r), Counter())
+                n = c[Desfecho.ACERTO] + c[Desfecho.FALSO]
+                celulas.append(f'{_taxa(c[Desfecho.ACERTO], c[Desfecho.FALSO]):.0%} de {n}' if n else '—')
+            print(f'  {nome:<23}' + ''.join(f'{x:>20}' for x in celulas))
     print(f'\nfabia = o que a tela mostra; parado = o mesmo com os núcleos parados; proximidade = '
-          f'núcleo a menos de {PROXIMIDADE_KM} km em qualquer rumo; antiga = regra de acerto anterior a 16/11.')
+          f'núcleo a menos de {PROXIMIDADE_KM} km em qualquer rumo.\n'
+          f'acerto = entrou numa área de risco observada a até {ACERTO_KM} km do ponto de encontro previsto; '
+          f'{NUCLEO} = conferido contra o núcleo movido pela estimativa (16 a 18/11); '
+          f'antiga = qualquer área de risco (antes de 16/11).\n'
+          'não previstos: "com alerta" = havia alerta em aberto, mas a entrada foi longe do ponto previsto; '
+          'aviso = entradas com algum alerta (acertos + com alerta).')
+
+
+def _ordem_detalhe(chave: tuple[str, str, str]) -> tuple:
+    _, nome, _ = chave
+    ordem = [*TEXTO_CONFIANCA.values(), 'na tela (alta e média)', *(faixa(b) for _, b in ANTECEDENCIAS)]
+    return (ordem.index(nome) if nome in ordem else len(ordem), nome)
 
 
 def _ordenadas(por_regra: dict[str, Counter]) -> list[tuple[str, Counter]]:
-    ordem = (*REGRAS, ANTIGA)
+    ordem = (*REGRAS, *(r + NUCLEO for r in REGRAS), ANTIGA)
     return sorted(por_regra.items(), key=lambda item: ordem.index(item[0]) if item[0] in ordem else len(ordem))
 
 
@@ -603,8 +687,9 @@ def _linha(r: dict) -> str:
     def pct(x: float | None) -> str:
         return '—' if x is None else f'{x:.0%}'
     return (f"{r['alertas']} alertas · {r['acertos']} acertos · {r['falsos']} falsos · "
-            f"{r['indeterminados']} indeterminados · {r['nao_previstos']} não previstos · "
-            f"acerto {pct(r['acerto'])} · detecção {pct(r['deteccao'])}")
+            f"{r['indeterminados']} indeterminados · {r['nao_previstos']} não previstos "
+            f"({r['com_alerta']} com alerta, {r['sem_aviso']} sem aviso) · "
+            f"acerto {pct(r['acerto'])} · detecção {pct(r['deteccao'])} · aviso {pct(r['aviso'])}")
 
 
 if __name__ == '__main__':
