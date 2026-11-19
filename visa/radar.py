@@ -10,6 +10,9 @@ pixels abaixo do limiar antes de devolver a imagem.
 
 Como o GeoServer devolve imagens já coloridas, o dBZ de cada pixel é deduzido
 pela cor, comparando com a paleta da REDEMET (a mesma de colore_radar.py).
+
+Quem usa: as rotas /radar/wms e o status dos radares (main.py e camadas), o `redemet`
+(filtro de dBZ nas imagens da API), o painel de impacto e a sonda (dBZ de um pixel).
 """
 import asyncio
 import io
@@ -29,7 +32,17 @@ import datas
 
 @dataclass(frozen=True)
 class Radar:
-    codigo: str     # código usado no CQL_FILTER (radar_code)
+    """Uma estação de radar meteorológico da REDEMET.
+
+    Atributos:
+        codigo: código de duas letras usado no CQL_FILTER (campo `radar_code`).
+        sigla: sigla de três letras mostrada na tela.
+        nome: nome da localidade.
+        uf: estado.
+        lat: latitude da antena, em graus.
+        lon: longitude da antena, em graus.
+    """
+    codigo: str
     sigla: str
     nome: str
     uf: str
@@ -67,7 +80,7 @@ RADARES = [
     Radar('tm', 'TRM', 'Três Marias', 'MG', -18.207259, -45.460535),
     Radar('vh', 'VLH', 'Vilhena', 'RO', -12.741, -60.145),
 ]
-POR_CODIGO = {r.codigo: r for r in RADARES}
+POR_CODIGO = {radar.codigo: radar for radar in RADARES}
 
 PRODUTOS = {'maxcappi': 'MAXCAPPI', 'cappi': 'CAPPI'}
 ALCANCES = {'400km': '400 km', '250km': '250 km'}
@@ -94,9 +107,14 @@ LEGENDA = [(int(dbz), f'#{int(r):02x}{int(g):02x}{int(b):02x}') for dbz, r, g, b
 
 
 def _tabela_interpolada() -> np.ndarray:
-    """Cores intermediárias geradas por colore_radar.py: cinza 0–255 -> (dBZ, R, G, B).
+    """Monta a tabela das cores intermediárias geradas por colore_radar.py.
 
+    A REDEMET converte um tom de cinza (0–255) em dBZ e interpola a cor entre as duas
+    entradas vizinhas da PALETA. Refazemos a mesma conta para reconhecer essas cores.
     Mesmo cálculo de buildDbzLookupTable() no visualizador.html (já corrigido).
+
+    Retorna:
+        Matriz T×4 com (dBZ, R, G, B) de cada cinza cujo dBZ fica em [0, 75).
     """
     escala = (95.5 - (-31.0)) / (254.0 - 2.0)
     linhas = []
@@ -105,10 +123,11 @@ def _tabela_interpolada() -> np.ndarray:
         if not 0 <= dbz < 75:
             continue
         # PALETA[0] é o -5 dBZ extra; o intervalo [5k, 5k+5) usa os índices k+1 e k+2
-        n0 = max(1, min(len(PALETA) - 2, math.floor(dbz / 5) + 1))
-        p0, p1 = PALETA[n0], PALETA[n0 + 1]
-        f = (dbz - p0[0]) / (p1[0] - p0[0])
-        cor = np.round(p0[1:] + f * (p1[1:] - p0[1:]))
+        indice_inicio = max(1, min(len(PALETA) - 2, math.floor(dbz / 5) + 1))
+        inicio = PALETA[indice_inicio]
+        fim = PALETA[indice_inicio + 1]
+        fracao = (dbz - inicio[0]) / (fim[0] - inicio[0])
+        cor = np.round(inicio[1:] + fracao * (fim[1:] - inicio[1:]))
         linhas.append((dbz, *cor))
     return np.array(linhas)
 
@@ -117,63 +136,113 @@ TABELA = _tabela_interpolada()
 
 
 def classificar_cores(cores: np.ndarray) -> np.ndarray:
-    """Recebe N cores RGB (N×3) e devolve o dBZ estimado de cada uma (ou FUNDO).
+    """Estima o dBZ de cada cor RGB (ou FUNDO, se a cor não for eco de radar).
 
-    1. Se a cor bate (tolerância de ~4 níveis por canal) com uma cor interpolada da
-       tabela, usa aquele dBZ.
-    2. Senão, pega a cor mais próxima da paleta e aplica as regras que separam
-       fundo de mapa (tons de cinza) de eco de radar — igual ao visualizador.html.
+    Fluxo:
+        1. Se a cor bate (tolerância de ~4 níveis por canal) com uma cor interpolada da
+           TABELA, usa aquele dBZ (`_procurar_na_tabela`).
+        2. Senão, pega a cor mais próxima da PALETA e aplica as regras que separam
+           fundo de mapa (tons de cinza) de eco de radar — igual ao visualizador.html
+           (`_dbz_pela_paleta`).
+
+    Parâmetros:
+        cores: matriz N×3 com as cores (R, G, B), de 0 a 255.
+
+    Retorna:
+        Vetor de N valores (float): o dBZ de cada cor, ou FUNDO.
     """
     cores = cores.astype(int)
     resultado = np.empty(len(cores))
-
-    # 1) Comparação quantizada (>>2) com a tabela, tolerância de ±1 degrau
-    q_cor = cores[:, None, :] >> 2                       # N×1×3
-    q_tab = TABELA[None, :, 1:].astype(int) >> 2         # 1×T×3
-    bate = np.all(np.abs(q_cor - q_tab) <= 1, axis=2)    # N×T
-    tem_par = bate.any(axis=1)
-    primeiro = bate.argmax(axis=1)                       # 1ª entrada que bate
-    resultado[tem_par] = TABELA[primeiro[tem_par], 0]
-
-    # 2) Cor mais próxima da paleta + regras de "é fundo?"
-    resto = ~tem_par
-    c = cores[resto]
-    dist = ((c[:, None, :] - PALETA[None, :, 1:]) ** 2).sum(axis=2)
-    mais_perto = dist.argmin(axis=1)
-    dist_min = dist.min(axis=1)
-    dbz = PALETA[mais_perto, 0].copy()
-
-    maior, menor = c.max(axis=1), c.min(axis=1)
-    cinza = (maior - menor) < 20
-    longe_demais = dist_min > 16000
-    cinza_suspeito = cinza & np.isin(dbz, (0, 70, 75))   # bordas/texto parecidos com branco/roxo/ciano
-    cinza_comum = cinza & (maior < 250) & (dbz != -5)    # outros cinzas (o -5 do CEMADEN fica)
-    dbz[longe_demais | cinza_suspeito | cinza_comum] = FUNDO
-    resultado[resto] = dbz
+    achou_na_tabela, dbz_da_tabela = _procurar_na_tabela(cores)
+    resultado[achou_na_tabela] = dbz_da_tabela
+    sem_par = ~achou_na_tabela
+    resultado[sem_par] = _dbz_pela_paleta(cores[sem_par])
     return resultado
 
 
+def _procurar_na_tabela(cores: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Procura cada cor na TABELA interpolada (passo 1 de `classificar_cores`).
+
+    A comparação é quantizada (>>2, ou seja, de 4 em 4 níveis) com tolerância de ±1 degrau.
+    Se várias entradas batem, vale a primeira.
+
+    Parâmetros:
+        cores: matriz N×3 de inteiros (R, G, B).
+
+    Retorna:
+        (achou, dbz): `achou` é um vetor booleano de N posições; `dbz` traz o dBZ só das
+        cores com `achou` verdadeiro, na mesma ordem.
+    """
+    cores_quantizadas = cores[:, None, :] >> 2                       # N×1×3
+    tabela_quantizada = TABELA[None, :, 1:].astype(int) >> 2         # 1×T×3
+    bate = np.all(np.abs(cores_quantizadas - tabela_quantizada) <= 1, axis=2)    # N×T
+    achou = bate.any(axis=1)
+    primeira_que_bate = bate.argmax(axis=1)
+    return achou, TABELA[primeira_que_bate[achou], 0]
+
+
+def _dbz_pela_paleta(cores: np.ndarray) -> np.ndarray:
+    """Dá o dBZ da cor mais próxima da PALETA, ou FUNDO (passo 2 de `classificar_cores`).
+
+    É FUNDO a cor longe demais de qualquer cor da paleta, ou um tom de cinza (canais quase
+    iguais) que não seja o cinza -5 dBZ do CEMADEN.
+
+    Parâmetros:
+        cores: matriz N×3 de inteiros (R, G, B) que não estão na TABELA.
+
+    Retorna:
+        Vetor de N valores (float): dBZ da paleta ou FUNDO.
+    """
+    distancias = ((cores[:, None, :] - PALETA[None, :, 1:]) ** 2).sum(axis=2)    # N×16
+    mais_perto = distancias.argmin(axis=1)
+    distancia_minima = distancias.min(axis=1)
+    dbz = PALETA[mais_perto, 0].copy()
+
+    canal_maior = cores.max(axis=1)
+    canal_menor = cores.min(axis=1)
+    cinza = (canal_maior - canal_menor) < 20
+    longe_demais = distancia_minima > 16000
+    cinza_suspeito = cinza & np.isin(dbz, (0, 70, 75))           # bordas/texto parecidos com branco/roxo/ciano
+    cinza_comum = cinza & (canal_maior < 250) & (dbz != -5)      # outros cinzas (o -5 do CEMADEN fica)
+    dbz[longe_demais | cinza_suspeito | cinza_comum] = FUNDO
+    return dbz
+
+
 def dbz_por_pixel(img: np.ndarray) -> np.ndarray:
-    """Imagem RGBA (altura × largura × 4) -> dBZ de cada pixel (float).
+    """Calcula o dBZ de cada pixel de uma imagem de radar.
 
-    NaN = pixel transparente; FUNDO = pixel visível que não é eco (borda, texto, mapa).
     Usado pelo filtro de limiar (abaixo) e pelo painel de impacto (impacto.py).
-
     Uma imagem tem poucas cores distintas (dezenas), mas muitos pixels (centenas de mil):
     `np.unique` classifica cada cor uma vez só e espalha o resultado pelos pixels.
+
+    Parâmetros:
+        img: matriz RGBA (altura × largura × 4), uint8.
+
+    Retorna:
+        Matriz altura × largura (float): o dBZ de cada pixel. NaN = pixel transparente;
+        FUNDO = pixel visível que não é eco (borda, texto, mapa).
     """
     altura, largura = img.shape[:2]
-    rgb, alfa = img[..., :3].reshape(-1, 3), img[..., 3].reshape(-1)
+    rgb = img[..., :3].reshape(-1, 3)
+    alfa = img[..., 3].reshape(-1)
     saida = np.full(altura * largura, np.nan)
     visiveis = alfa > 0
     if visiveis.any():
-        cores, indice = np.unique(rgb[visiveis], axis=0, return_inverse=True)
-        saida[visiveis] = classificar_cores(cores)[indice.ravel()]
+        cores, indice_da_cor = np.unique(rgb[visiveis], axis=0, return_inverse=True)
+        saida[visiveis] = classificar_cores(cores)[indice_da_cor.ravel()]
     return saida.reshape(altura, largura)
 
 
 def filtrar_rgba(img: np.ndarray, limiar_dbz: int) -> np.ndarray:
-    """Cópia da imagem com os pixels de eco abaixo do limiar transparentes (o fundo fica)."""
+    """Torna transparentes os pixels de eco abaixo do limiar (o fundo fica).
+
+    Parâmetros:
+        img: matriz RGBA (altura × largura × 4), uint8. Não é alterada.
+        limiar_dbz: menor dBZ que continua visível.
+
+    Retorna:
+        Uma cópia da imagem, já filtrada.
+    """
     dbz = dbz_por_pixel(img)
     # Arredonda: a cor exata de 30 dBZ sai da tabela como 29,8 e não deve sumir com limiar 30.
     # (Comparações com NaN dão False: pixels já transparentes não entram.)
@@ -184,7 +253,18 @@ def filtrar_rgba(img: np.ndarray, limiar_dbz: int) -> np.ndarray:
 
 
 def filtrar_png(png: bytes, limiar_dbz: int) -> bytes:
-    """O mesmo filtro, de PNG para PNG (tiles do GeoServer, que já chegam codificados)."""
+    """Aplica o mesmo filtro de `filtrar_rgba`, de PNG para PNG.
+
+    Usado nos tiles do GeoServer, que já chegam codificados. O PNG de saída é sem perdas
+    (as cores precisam chegar exatas); `compress_level=1` comprime várias vezes mais rápido.
+
+    Parâmetros:
+        png: conteúdo do arquivo PNG.
+        limiar_dbz: menor dBZ que continua visível.
+
+    Retorna:
+        O PNG filtrado.
+    """
     img = filtrar_rgba(np.array(Image.open(io.BytesIO(png)).convert('RGBA')), limiar_dbz)
     saida = io.BytesIO()
     Image.fromarray(img).save(saida, 'PNG', compress_level=1)
@@ -192,13 +272,20 @@ def filtrar_png(png: bytes, limiar_dbz: int) -> bytes:
 
 
 def cor_dbz(dbz: float | None) -> str:
-    """Cor da legenda para um valor de dBZ (a faixa de 5 em 5 que o contém); None = sem eco."""
+    """Dá a cor da legenda para um valor de dBZ (a faixa de 5 em 5 que o contém).
+
+    Parâmetros:
+        dbz: refletividade, em dBZ; None = sem eco.
+
+    Retorna:
+        Cor em '#rrggbb'. Abaixo de 0 dBZ, a cor da primeira faixa.
+    """
     if dbz is None:
         return '#334155'
     cor = LEGENDA[0][1]
-    for limite, c in LEGENDA:
+    for limite, cor_da_faixa in LEGENDA:
         if dbz >= limite:
-            cor = c
+            cor = cor_da_faixa
     return cor
 
 
@@ -214,8 +301,15 @@ RADAR_ESPERA_FALHA_S = 30
 
 @dataclass
 class EstadoGeoServer:
-    ok: bool | None = None          # o último pedido deu certo? None = ainda não testado (barra de saúde)
-    indisponivel_ate: float = 0.0   # disjuntor: até quando (time.monotonic) responder "fora" sem tentar
+    """Saúde do GeoServer, compartilhada por todos os usuários (ver DECISOES 2.3).
+
+    Atributos:
+        ok: o último pedido deu certo? None = ainda não testado (barra de saúde).
+        indisponivel_ate: disjuntor: até quando (`time.monotonic`) responder "fora" sem
+            tentar. `math.inf` = até a verificação de fundo achar o servidor de novo.
+    """
+    ok: bool | None = None
+    indisponivel_ate: float = 0.0
 
 
 estado = EstadoGeoServer()
@@ -223,7 +317,15 @@ _cliente = httpx.AsyncClient(timeout=httpx.Timeout(config.RADAR_TIMEOUT_S, conne
 
 
 async def alcancavel(url: str = '', espera_s: float = 5) -> bool:
-    """Testa só a conexão TCP com o GeoServer (sem pedir imagem nenhuma)."""
+    """Testa só a conexão TCP com o GeoServer (sem pedir imagem nenhuma).
+
+    Parâmetros:
+        url: endereço a testar; vazio = `config.GEOSERVER_WMS`.
+        espera_s: tempo máximo de espera pela conexão, em segundos.
+
+    Retorna:
+        True se a conexão abriu.
+    """
     endereco = httpx.URL(url or config.GEOSERVER_WMS)
     porta = endereco.port or (443 if endereco.scheme == 'https' else 80)
     try:
@@ -239,6 +341,7 @@ async def vigiar() -> None:
 
     Assim o "indisponível" já está valendo quando a página abre, e nenhum tile fica
     5 s preso esperando a conexão (o que atrasava as camadas de espaço aéreo).
+    Fora do ar, o disjuntor fica ligado (`math.inf`) até a próxima verificação dar certo.
     """
     while True:
         if await alcancavel():
@@ -259,12 +362,20 @@ PEDIDOS = {'getmap': 'layers', 'getlegendgraphic': 'layer'}   # pedido -> parâm
 
 
 def pedido_permitido(parametros: dict[str, str]) -> bool:
-    p = {k.lower(): v for k, v in parametros.items()}
-    chave = PEDIDOS.get(p.get('request', '').lower())
-    if chave is None:
+    """Diz se o pedido é um GetMap/GetLegendGraphic só de camadas permitidas.
+
+    Parâmetros:
+        parametros: parâmetros da URL, com os nomes em qualquer caixa.
+
+    Retorna:
+        True se o tipo de pedido é conhecido e todas as camadas estão em CAMADAS_PERMITIDAS.
+    """
+    em_minusculas = {nome.lower(): valor for nome, valor in parametros.items()}
+    parametro_da_camada = PEDIDOS.get(em_minusculas.get('request', '').lower())
+    if parametro_da_camada is None:
         return False
-    camadas = p.get(chave, '').split(',')
-    return all(CAMADAS_PERMITIDAS.fullmatch(c) for c in camadas)
+    camadas = em_minusculas.get(parametro_da_camada, '').split(',')
+    return all(CAMADAS_PERMITIDAS.fullmatch(camada) for camada in camadas)
 
 
 # Parâmetros que o mapa manda (Leaflet + as nossas opções em observacao.py, raios.py, wifs.py e
@@ -298,37 +409,68 @@ PARAMETROS_WMS = {
 
 
 def _cql_permitido(cql: str) -> bool:
-    """Só o que `filtro_cql` produziria: 'INCLUDE' ou a lista de radares conhecidos."""
+    """Aceita só o que `filtro_cql` produziria: 'INCLUDE' ou a lista de radares conhecidos.
+
+    Parâmetros:
+        cql: valor do CQL_FILTER que veio na URL.
+
+    Retorna:
+        True se `filtro_cql` geraria exatamente esse texto.
+    """
     if cql == 'INCLUDE':
         return True
     codigos = re.fullmatch(r"radar_code IN \('(\w+(?:','\w+)*)'\)", cql)
     return bool(codigos) and filtro_cql(codigos.group(1).split("','")) == cql
 
 
+def _valor_aceito(chave: str, valor: str) -> bool:
+    """Confere o valor de um parâmetro que o mapa usa (CQL_FILTER ou um de PARAMETROS_WMS).
+
+    Parâmetros:
+        chave: nome do parâmetro, em minúsculas.
+        valor: valor que veio na URL.
+
+    Retorna:
+        True se o valor tem o formato esperado e, nos números, está dentro do limite.
+    """
+    if chave == 'cql_filter':
+        return _cql_permitido(valor)
+    if not PARAMETROS_WMS[chave].fullmatch(valor):
+        return False
+    if chave in ('width', 'height'):
+        return 1 <= int(valor) <= TAMANHO_MAX_PX
+    if chave == 'dbz_min':
+        return int(valor) <= 75
+    return True
+
+
 def limpar_parametros(parametros: dict[str, str]) -> dict[str, str] | None:
-    """Os parâmetros que podem seguir para o GeoServer, ou None se o pedido deve ser recusado.
+    """Separa os parâmetros que podem seguir para o GeoServer (DECISOES 1.4).
 
     O navegador monta a URL do tile, então nada do que vem nela é confiável: cada valor tem
     de ter o formato que o nosso mapa usa, e o tamanho da imagem tem limite (sem ele, um
     WIDTH=8000&HEIGHT=8000 faria o GeoServer e o filtro de dBZ gerarem centenas de MB).
+
+    Fluxo:
+        1. Pedido ou camada fora da lista: recusa.
+        2. Parâmetro que o mapa não usa: descartado em silêncio.
+        3. Parâmetro conhecido com valor fora do formato: recusa o pedido inteiro.
+
+    Parâmetros:
+        parametros: parâmetros da URL, como vieram do navegador.
+
+    Retorna:
+        Os parâmetros aceitos (com os nomes como vieram), ou None se o pedido deve ser recusado.
     """
     if not pedido_permitido(parametros):
         return None
     limpos = {}
     for nome, valor in parametros.items():
         chave = nome.lower()
-        if chave == 'cql_filter':
-            if not _cql_permitido(valor):
-                return None
-        elif chave in PARAMETROS_WMS:
-            if not PARAMETROS_WMS[chave].fullmatch(valor):
-                return None
-            if chave in ('width', 'height') and not 1 <= int(valor) <= TAMANHO_MAX_PX:
-                return None
-            if chave == 'dbz_min' and int(valor) > 75:
-                return None
-        else:
+        if chave != 'cql_filter' and chave not in PARAMETROS_WMS:
             continue                    # parâmetro que o mapa não usa: descartado
+        if not _valor_aceito(chave, valor):
+            return None
         limpos[nome] = valor
     return limpos
 
@@ -339,9 +481,19 @@ def geoserver_fora() -> bool:
 
 
 async def buscar_tile(parametros: dict[str, str]) -> tuple[int, bytes, str]:
-    """Repassa um GetMap ao GeoServer. `dbz_min` (nosso) é retirado e aplicado aqui.
+    """Repassa um GetMap/GetLegendGraphic ao GeoServer (rota /radar/wms).
 
-    Só segue o que `limpar_parametros` aceita. Devolve (status HTTP, conteúdo, tipo).
+    Fluxo:
+        1. Só segue o que `limpar_parametros` aceita (senão, 400).
+        2. Com o disjuntor ligado, responde 503 na hora, sem tentar.
+        3. Retira `dbz_min` (parâmetro nosso, o GeoServer não o conhece) e pede a imagem.
+        4. Com limiar, filtra a imagem numa thread.
+
+    Parâmetros:
+        parametros: parâmetros da URL, como vieram do navegador.
+
+    Retorna:
+        (status HTTP, conteúdo, tipo do conteúdo).
     """
     parametros = limpar_parametros(parametros)
     if parametros is None:
@@ -350,6 +502,24 @@ async def buscar_tile(parametros: dict[str, str]) -> tuple[int, bytes, str]:
         return 503, b'GeoServer inacessivel (aguardando nova tentativa)', 'text/plain'
 
     limiar = int(parametros.pop('dbz_min', 0) or 0)
+    status, conteudo, tipo = await _pedir_ao_geoserver(parametros)
+    if status != 200 or limiar <= 0:
+        return status, conteudo, tipo
+    # o filtro usa CPU: roda numa thread para não travar os outros usuários
+    return 200, await asyncio.to_thread(filtrar_png, conteudo, limiar), 'image/png'
+
+
+async def _pedir_ao_geoserver(parametros: dict[str, str]) -> tuple[int, bytes, str]:
+    """Faz o pedido WMS e anota em `estado` se o GeoServer respondeu.
+
+    Uma falha de conexão liga o disjuntor por RADAR_ESPERA_FALHA_S.
+
+    Parâmetros:
+        parametros: parâmetros já limpos, sem `dbz_min`.
+
+    Retorna:
+        (200, imagem, tipo) se deu certo; (502, mensagem, 'text/plain') se não.
+    """
     try:
         resposta = await _cliente.get(config.GEOSERVER_WMS, params=parametros)
     except httpx.HTTPError as erro:
@@ -365,10 +535,7 @@ async def buscar_tile(parametros: dict[str, str]) -> tuple[int, bytes, str]:
         return 502, resposta.content[:2000], 'text/plain'
 
     estado.ok = True
-    if limiar <= 0:
-        return 200, resposta.content, tipo
-    # o filtro usa CPU: roda numa thread para não travar os outros usuários
-    return 200, await asyncio.to_thread(filtrar_png, resposta.content, limiar), 'image/png'
+    return 200, resposta.content, tipo
 
 
 # ---------------------------------------------------------------------------
@@ -376,17 +543,33 @@ async def buscar_tile(parametros: dict[str, str]) -> tuple[int, bytes, str]:
 # ---------------------------------------------------------------------------
 
 def janela_de_tempo(minutos: int = config.RADAR_JANELA_MIN) -> str:
-    """Intervalo TIME do WMS: 'início/agora' em UTC, sem milissegundos."""
+    """Monta o intervalo TIME do WMS: 'início/agora' em UTC, sem milissegundos.
+
+    Parâmetros:
+        minutos: tamanho da janela, em minutos, terminando agora.
+
+    Retorna:
+        Texto como '2026-11-19T12:00:00Z/2026-11-19T12:30:00Z'.
+    """
     agora = datetime.now(UTC).replace(microsecond=0)
     inicio = agora - timedelta(minutes=minutos)
-    fmt = '%Y-%m-%dT%H:%M:%SZ'
-    return f'{inicio.strftime(fmt)}/{agora.strftime(fmt)}'
+    formato = '%Y-%m-%dT%H:%M:%SZ'
+    return f'{inicio.strftime(formato)}/{agora.strftime(formato)}'
 
 
 def filtro_cql(codigos: list[str]) -> str:
-    """CQL_FILTER para os radares escolhidos. 'INCLUDE' = todos."""
-    validos = {r.codigo for r in RADARES}
-    escolhidos = [c for c in codigos if c in validos]  # só códigos conhecidos (evita injeção)
+    """Monta o CQL_FILTER para os radares escolhidos.
+
+    Só entram códigos conhecidos (evita injeção de CQL).
+
+    Parâmetros:
+        codigos: códigos dos radares ('al', 'be'...).
+
+    Retorna:
+        "radar_code IN ('al','be')", ou 'INCLUDE' (todos) se a lista ficar vazia ou completa.
+    """
+    validos = {radar.codigo for radar in RADARES}
+    escolhidos = [codigo for codigo in codigos if codigo in validos]
     if not escolhidos or len(escolhidos) == len(RADARES):
         return 'INCLUDE'
     return "radar_code IN ('" + "','".join(escolhidos) + "')"
@@ -407,6 +590,15 @@ STATUS_FILTRO_PADRAO = {'green': True, 'yellow': True, 'red': True, 'gray': Fals
 
 
 def classificar_status(ultima: datetime | None, agora: datetime | None = None) -> str:
+    """Classifica um radar pela idade da sua imagem mais recente.
+
+    Parâmetros:
+        ultima: horário (UTC, com fuso) da última imagem; None = sem dados.
+        agora: horário de referência; None = o relógio atual (os testes passam um fixo).
+
+    Retorna:
+        Uma chave de STATUS: 'green', 'yellow', 'red' ou 'gray'.
+    """
     if ultima is None:
         return 'gray'
     minutos = ((agora or datetime.now(UTC)) - ultima).total_seconds() / 60
@@ -420,16 +612,34 @@ def classificar_status(ultima: datetime | None, agora: datetime | None = None) -
 
 
 def filtro_status(produto: str, alcance: str, altura: str) -> str:
-    """CQL do WFS de status. Só valores conhecidos (vão para o GeoServer)."""
+    """Monta o CQL do WFS de status. Só aceita valores conhecidos (vão para o GeoServer).
+
+    Parâmetros:
+        produto: chave de PRODUTOS ('maxcappi' ou 'cappi').
+        alcance: chave de ALCANCES ('400km' ou '250km').
+        altura: chave de ALTURAS_CAPPI, em km; só entra no filtro do CAPPI.
+
+    Retorna:
+        O texto do filtro. Levanta ValueError se algum valor for desconhecido.
+    """
     if produto not in PRODUTOS or alcance not in ALCANCES or altura not in ALTURAS_CAPPI:
         raise ValueError('produto, alcance ou altura desconhecido')
     cql = f"produto='{produto}_{alcance}'"
-    return cql + f' AND elevacao={altura}' if produto == 'cappi' else cql
+    if produto != 'cappi':
+        return cql
+    return cql + f' AND elevacao={altura}'
 
 
 async def buscar_status(produto: str, alcance: str, altura: str) -> dict[str, datetime] | None:
-    """{código do radar: horário da última imagem}. None se o GeoServer não respondeu
-    (diferente de {} = respondeu, mas nenhum radar tem dados)."""
+    """Consulta no GeoServer o horário da última imagem de cada radar.
+
+    Parâmetros:
+        produto, alcance, altura: como em `filtro_status`.
+
+    Retorna:
+        {código do radar: horário da última imagem}. None se o GeoServer não respondeu
+        (diferente de {} = respondeu, mas nenhum radar tem dados).
+    """
     if geoserver_fora():
         return None
     parametros = {'service': 'WFS', 'version': '1.0.0', 'request': 'GetFeature',
@@ -441,12 +651,27 @@ async def buscar_status(produto: str, alcance: str, altura: str) -> dict[str, da
         feicoes = resposta.json().get('features') or []
     except (httpx.HTTPError, ValueError):
         return None
-    codigos = {r.codigo.upper(): r.codigo for r in RADARES}
-    saida = {}
-    for f in feicoes:
-        p = f.get('properties') or {}
-        codigo = codigos.get(str(p.get('radar_code', '')).upper())
-        quando = datas.ler_iso(p.get('last_update'))
+    return _ultimas_por_radar(feicoes)
+
+
+def _ultimas_por_radar(feicoes: list[dict]) -> dict[str, datetime]:
+    """Lê as feições do WFS de status: código do radar -> horário da última imagem.
+
+    O GeoServer manda o código em maiúsculas; feições de radar desconhecido ou sem data
+    legível ficam de fora.
+
+    Parâmetros:
+        feicoes: lista `features` do GeoJSON devolvido pelo WFS.
+
+    Retorna:
+        {código do radar em minúsculas: horário}.
+    """
+    codigo_minusculo = {radar.codigo.upper(): radar.codigo for radar in RADARES}
+    ultimas = {}
+    for feicao in feicoes:
+        propriedades = feicao.get('properties') or {}
+        codigo = codigo_minusculo.get(str(propriedades.get('radar_code', '')).upper())
+        quando = datas.ler_iso(propriedades.get('last_update'))
         if codigo and quando:
-            saida[codigo] = quando
-    return saida
+            ultimas[codigo] = quando
+    return ultimas

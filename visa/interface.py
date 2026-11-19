@@ -26,32 +26,34 @@ def carregar_prefs() -> dict:
 
 
 def pagina() -> None:
-    """Uma página por aba do navegador. A ORDEM importa:
+    """Monta a página (uma por aba do navegador). A ORDEM importa (DECISOES.md, 5.5).
 
-    1. o mapa, porque as camadas precisam dele;
-    2. as camadas;
-    3. as áreas da tela (algumas preenchem rótulos que as camadas usam: a idade do vento,
-       a janela dos raios...);
-    4. por fim, as camadas ligam conforme as preferências e os relógios começam.
+    Fluxo:
+        1. o mapa, porque as camadas precisam dele;
+        2. as camadas;
+        3. as áreas da tela (algumas preenchem rótulos que as camadas usam: a idade do vento,
+           a janela dos raios...);
+        4. por fim, as camadas ligam conforme as preferências e os relógios começam.
     """
     prefs = carregar_prefs()
     ui.add_head_html('<link rel="stylesheet" href="/static/interface.css">')
     ui.query('.nicegui-content').classes('p-0 gap-0')
 
     area = AreaDoMapa()
-    c = camadas.CamadasDaPagina(area.mapa, prefs)
-    ui.on('rota', lambda e: c.rotas.alternar(e.args))   # botão "Ver / ocultar rota" no popup (aeronaves.js)
+    camadas_ = camadas.CamadasDaPagina(area.mapa, prefs)
+    # botão "Ver / ocultar rota" no popup das aeronaves (aeronaves.js)
+    ui.on('rota', lambda evento: camadas_.rotas.alternar(evento.args))
 
-    painel = PainelCamadas(prefs, c)
+    painel = PainelCamadas(prefs, camadas_)
     gaveta = Gaveta()
-    sonda = PainelSonda(gaveta, area, prefs, c)
-    impacto = PainelImpacto(gaveta, area, prefs, c, sonda)
-    cabecalho = Cabecalho(prefs, area, c, painel.gaveta, impacto, sonda)
-    legenda = Legenda(area, prefs, c)
-    LinhaDoTempo(area, prefs, c)
+    sonda = PainelSonda(gaveta, area, prefs, camadas_)
+    impacto = PainelImpacto(gaveta, area, prefs, camadas_, sonda)
+    cabecalho = Cabecalho(prefs, area, camadas_, painel.gaveta, impacto, sonda)
+    legenda = Legenda(area, prefs, camadas_)
+    LinhaDoTempo(area, prefs, camadas_)
 
-    c.iniciar()
-    c.ligar_relogios()
+    camadas_.iniciar()
+    camadas_.ligar_relogios()
     # Primeiro desenho já, sem esperar o primeiro tique dos relógios
     cabecalho.saude.atualizar()
     cabecalho.pintar_modos()

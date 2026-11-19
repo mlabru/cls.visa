@@ -10,10 +10,15 @@ no formato do leaflet-velocity: uma lista com dois registros (componente U e V),
 cada um com um `header` descrevendo a grade e uma lista `data` com os valores.
 
 A lista de horários disponíveis é montada lendo a pasta — não há lista fixa no código.
+
+Quem usa: a camada de vento e o painel (camadas/, tela/gaveta.py), a sonda (valor num ponto)
+e o FAB.ia (impacto.py e previsao.py: o vento que leva as tempestades, `deslocamento`).
+Não importa o NiceGUI.
 """
 import json
 import math
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -28,79 +33,143 @@ _PADRAO = re.compile(r'^wind_(\d{8}T\d{6}Z)_(\d+)\.json$')
 
 @dataclass(frozen=True)
 class ArquivoVento:
+    """Um arquivo de vento da pasta.
+
+    Atributos:
+        caminho: o arquivo.
+        horario: horário de referência (UTC), tirado do nome.
+        pressao_pa: nível de pressão, em Pa (50000 = 500 hPa).
+    """
     caminho: Path
-    horario: datetime   # horário de referência (UTC)
+    horario: datetime
     pressao_pa: int
 
 
 def listar_arquivos(pasta: Path = config.VENTO_DIR) -> list[ArquivoVento]:
-    """Todos os arquivos de vento da pasta, do mais recente para o mais antigo."""
+    """Todos os arquivos de vento da pasta, do mais recente para o mais antigo.
+
+    Parâmetros:
+        pasta: onde procurar (arquivos fora do padrão wind_<horário>_<Pa>.json são ignorados).
+
+    Retorna:
+        Os arquivos, por horário e depois por pressão, em ordem decrescente.
+    """
     arquivos = []
     for caminho in pasta.glob('wind_*.json'):
-        m = _PADRAO.match(caminho.name)
-        if not m:
+        partes = _PADRAO.match(caminho.name)
+        if not partes:
             continue
-        horario = datetime.strptime(m.group(1), '%Y%m%dT%H%M%SZ').replace(tzinfo=UTC)
-        arquivos.append(ArquivoVento(caminho, horario, int(m.group(2))))
-    return sorted(arquivos, key=lambda a: (a.horario, a.pressao_pa), reverse=True)
+        horario = datetime.strptime(partes.group(1), '%Y%m%dT%H%M%SZ').replace(tzinfo=UTC)
+        arquivos.append(ArquivoVento(caminho, horario, int(partes.group(2))))
+    return sorted(arquivos, key=lambda arquivo: (arquivo.horario, arquivo.pressao_pa), reverse=True)
 
 
 def horarios_disponiveis(arquivos: list[ArquivoVento], fl: int) -> list[datetime]:
-    """Horários que têm arquivo para o nível de voo pedido (mais recente primeiro)."""
-    pa = config.VENTO_FL_PARA_PA.get(fl)
-    return [a.horario for a in arquivos if a.pressao_pa == pa]
+    """Horários que têm arquivo para o nível de voo pedido (mais recente primeiro).
+
+    Parâmetros:
+        arquivos: de listar_arquivos.
+        fl: nível de voo (config.VENTO_FL_PARA_PA).
+    """
+    pressao_pa = config.VENTO_FL_PARA_PA.get(fl)
+    return [arquivo.horario for arquivo in arquivos if arquivo.pressao_pa == pressao_pa]
 
 
 def escolher(arquivos: list[ArquivoVento], fl: int, horario: datetime | None) -> ArquivoVento | None:
-    """Arquivo do nível de voo pedido, no horário pedido (ou o mais recente)."""
-    pa = config.VENTO_FL_PARA_PA.get(fl)
-    candidatos = [a for a in arquivos if a.pressao_pa == pa]
+    """Arquivo do nível de voo pedido, no horário pedido (ou o mais recente).
+
+    Parâmetros:
+        arquivos: de listar_arquivos (mais recente primeiro).
+        fl: nível de voo (config.VENTO_FL_PARA_PA).
+        horario: horário pedido; None = o mais recente.
+
+    Retorna:
+        O arquivo, ou None se não houver.
+    """
+    pressao_pa = config.VENTO_FL_PARA_PA.get(fl)
+    candidatos = [arquivo for arquivo in arquivos if arquivo.pressao_pa == pressao_pa]
     if horario is not None:
-        candidatos = [a for a in candidatos if a.horario == horario]
+        candidatos = [arquivo for arquivo in candidatos if arquivo.horario == horario]
     return candidatos[0] if candidatos else None
 
 
 def _recortar_registro(registro: dict, recorte: dict) -> dict:
-    """Recorta um registro (U ou V) da grade global para a área de interesse."""
-    h = registro['header']
-    dx, dy, nx = h['dx'], h['dy'], h['nx']
-    lo1, la1 = h['lo1'], h['la1']        # canto noroeste da grade original
+    """Recorta um registro (U ou V) da grade global para a área de interesse.
 
-    # Colunas: longitudes 0..360 a partir de lo1; a área pode cruzar o meridiano 0
+    Parâmetros:
+        registro: {'header': ..., 'data': [...]} no formato do leaflet-velocity; a grade começa
+            no canto noroeste (lo1, la1), com longitudes 0..360 e latitudes decrescentes.
+        recorte: dict com lat_norte, lat_sul, lon_oeste e lon_leste, em graus.
+
+    Retorna:
+        Um registro no mesmo formato, só com a área do recorte (header ajustado).
+    """
+    cabecalho = registro['header']
+    passo_lon = cabecalho['dx']
+    passo_lat = cabecalho['dy']
+    colunas_global = cabecalho['nx']
+    lon_inicial = cabecalho['lo1']       # canto noroeste da grade original
+    lat_inicial = cabecalho['la1']
+
+    # Colunas: longitudes 0..360 a partir de lon_inicial; a área pode cruzar o meridiano 0
     lon_oeste = recorte['lon_oeste'] % 360
-    col0 = round((lon_oeste - lo1) / dx) % nx
-    ncols = round((recorte['lon_leste'] - recorte['lon_oeste']) / dx) + 1
-    # Linhas: latitudes decrescem a partir de la1
-    lin0 = round((la1 - recorte['lat_norte']) / dy)
-    nlins = round((recorte['lat_norte'] - recorte['lat_sul']) / dy) + 1
+    primeira_coluna = round((lon_oeste - lon_inicial) / passo_lon) % colunas_global
+    colunas = round((recorte['lon_leste'] - recorte['lon_oeste']) / passo_lon) + 1
+    # Linhas: latitudes decrescem a partir de lat_inicial
+    primeira_linha = round((lat_inicial - recorte['lat_norte']) / passo_lat)
+    linhas = round((recorte['lat_norte'] - recorte['lat_sul']) / passo_lat) + 1
 
     dados = registro['data']
     novo = []
-    for lin in range(lin0, lin0 + nlins):
-        base = lin * nx
-        novo.extend(dados[base + (col0 + c) % nx] for c in range(ncols))
+    for linha in range(primeira_linha, primeira_linha + linhas):
+        inicio_da_linha = linha * colunas_global
+        novo.extend(dados[inicio_da_linha + (primeira_coluna + coluna) % colunas_global] for coluna in range(colunas))
 
-    cabecalho = dict(h, lo1=lo1 + col0 * dx, la1=la1 - lin0 * dy, nx=ncols, ny=nlins)
-    cabecalho['lo2'] = cabecalho['lo1'] + (ncols - 1) * dx
-    cabecalho['la2'] = cabecalho['la1'] - (nlins - 1) * dy
-    return {'header': cabecalho, 'data': novo}
+    novo_cabecalho = dict(cabecalho, lo1=lon_inicial + primeira_coluna * passo_lon,
+                          la1=lat_inicial - primeira_linha * passo_lat, nx=colunas, ny=linhas)
+    novo_cabecalho['lo2'] = novo_cabecalho['lo1'] + (colunas - 1) * passo_lon
+    novo_cabecalho['la2'] = novo_cabecalho['la1'] - (linhas - 1) * passo_lat
+    return {'header': novo_cabecalho, 'data': novo}
 
 
 @lru_cache(maxsize=32)
 def carregar_recortado(caminho: Path) -> list[dict]:
-    """Lê o arquivo e devolve só a área de VENTO_RECORTE (≈ 10× menor que o global)."""
+    """Lê o arquivo e devolve só a área de VENTO_RECORTE (≈ 10× menor que o global).
+
+    Guardado em cache (32 arquivos): cada clique da sonda lê os 17 níveis.
+
+    Parâmetros:
+        caminho: o arquivo de vento.
+
+    Retorna:
+        Os dois registros (U e V) recortados.
+    """
     registros = json.loads(caminho.read_text())
-    return [_recortar_registro(r, config.VENTO_RECORTE) for r in registros]
+    return [_recortar_registro(registro, config.VENTO_RECORTE) for registro in registros]
 
 
 def horario_referencia(dados: list[dict], arquivo: ArquivoVento) -> datetime:
-    """Horário do `header.refTime` do JSON; se faltar, o do nome do arquivo."""
+    """Horário do `header.refTime` do JSON; se faltar, o do nome do arquivo.
+
+    Parâmetros:
+        dados: os registros do arquivo (de carregar_recortado).
+        arquivo: o arquivo, para o horário do nome.
+    """
     texto = dados[0]['header'].get('refTime') if dados else None
     return datas.ler_iso(texto) or arquivo.horario
 
 
 def idade(referencia: datetime, agora: datetime | None = None) -> tuple[str, str]:
-    """Texto da idade do dado e a cor do aviso ('positive', 'warning', 'negative')."""
+    """Texto da idade do dado e a cor do aviso.
+
+    Parâmetros:
+        referencia: horário de referência do arquivo (UTC).
+        agora: hora atual (None = agora de verdade).
+
+    Retorna:
+        (texto como 'há 3 h', cor 'positive', 'warning' ou 'negative'); passado
+        VENTO_IDADE_VELHO_H, o texto ganha ' · DESATUALIZADO'.
+    """
     agora = agora or datetime.now(UTC)
     horas = (agora - referencia).total_seconds() / 3600
     if horas < 1:
@@ -124,30 +193,51 @@ KT_POR_MS = 1.943844
 
 
 def uv_no_ponto(registros: list[dict], lat: float, lon: float) -> tuple[float, float] | None:
-    """Componentes (u para leste, v para norte), em m/s, no ponto de grade mais próximo."""
+    """Componentes do vento no ponto de grade mais próximo.
+
+    Parâmetros:
+        registros: [U, V] de carregar_recortado.
+        lat, lon: o ponto, em graus.
+
+    Retorna:
+        (u para leste, v para norte), em m/s; None fora da grade, sem valor ou com arquivo malformado.
+    """
     try:
-        u_reg, v_reg = registros[0], registros[1]
-        h = u_reg['header']
-        col = round(((lon - h['lo1']) % 360) / h['dx'])
-        lin = round((h['la1'] - lat) / h['dy'])
-        if not (0 <= col < h['nx'] and 0 <= lin < h['ny']):
+        registro_u = registros[0]
+        registro_v = registros[1]
+        cabecalho = registro_u['header']
+        coluna = round(((lon - cabecalho['lo1']) % 360) / cabecalho['dx'])
+        linha = round((cabecalho['la1'] - lat) / cabecalho['dy'])
+        if not (0 <= coluna < cabecalho['nx'] and 0 <= linha < cabecalho['ny']):
             return None
-        u, v = u_reg['data'][lin * h['nx'] + col], v_reg['data'][lin * h['nx'] + col]
+        indice = linha * cabecalho['nx'] + coluna
+        vento_u = registro_u['data'][indice]
+        vento_v = registro_v['data'][indice]
     except (IndexError, KeyError, TypeError):
         return None
-    if u is None or v is None:
+    if vento_u is None or vento_v is None:
         return None
-    return float(u), float(v)
+    return float(vento_u), float(vento_v)
 
 
 def valor_no_ponto(registros: list[dict], lat: float, lon: float) -> tuple[int, int] | None:
-    """(direção de onde vem, em graus; velocidade em kt) no ponto de grade mais próximo."""
-    uv = uv_no_ponto(registros, lat, lon)
-    if uv is None:
+    """Vento no ponto de grade mais próximo, como se diz na aviação.
+
+    Parâmetros:
+        registros: [U, V] de carregar_recortado.
+        lat, lon: o ponto, em graus.
+
+    Retorna:
+        (direção de onde vem, em graus, de 1 a 360; velocidade em kt), ou None sem valor.
+    """
+    componentes = uv_no_ponto(registros, lat, lon)
+    if componentes is None:
         return None
-    u, v = uv
-    direcao = round((270 - math.degrees(math.atan2(v, u))) % 360)
-    return (direcao if direcao else 360), round(math.hypot(u, v) * KT_POR_MS)
+    vento_u, vento_v = componentes
+    direcao = round((270 - math.degrees(math.atan2(vento_v, vento_u))) % 360)
+    if direcao == 0:
+        direcao = 360
+    return direcao, round(math.hypot(vento_u, vento_v) * KT_POR_MS)
 
 
 # ---------------------------------------------------------------------------
@@ -166,51 +256,98 @@ def arquivos_de_deslocamento(agora: datetime, arquivos: list[ArquivoVento]) -> l
 
     Vazio se não houver horário completo a menos de DESLOCAMENTO_IDADE_MAX_H de agora: vento
     velho daria um movimento pior que nenhum.
+
+    Parâmetros:
+        agora: hora de referência (UTC).
+        arquivos: de listar_arquivos.
+
+    Retorna:
+        Um arquivo por nível, na ordem de DESLOCAMENTO_PA; vazio se não houver horário bom.
     """
     por_horario: dict[datetime, dict[int, ArquivoVento]] = {}
-    for a in arquivos:
-        if a.pressao_pa in DESLOCAMENTO_PA:
-            por_horario.setdefault(a.horario, {})[a.pressao_pa] = a
+    for arquivo in arquivos:
+        if arquivo.pressao_pa in DESLOCAMENTO_PA:
+            por_horario.setdefault(arquivo.horario, {})[arquivo.pressao_pa] = arquivo
+
+    def distancia_s(horario: datetime) -> float:
+        """Quantos segundos o horário está de `agora`, para mais ou para menos."""
+        return abs((agora - horario).total_seconds())
+
     limite_s = DESLOCAMENTO_IDADE_MAX_H * 3600
-    completos = [h for h, niveis in por_horario.items()
-                 if len(niveis) == len(DESLOCAMENTO_PA) and abs((agora - h).total_seconds()) <= limite_s]
+    completos = []
+    for horario, niveis in por_horario.items():
+        if len(niveis) == len(DESLOCAMENTO_PA) and distancia_s(horario) <= limite_s:
+            completos.append(horario)
     if not completos:
         return []
-    melhor = min(completos, key=lambda h: abs((agora - h).total_seconds()))
-    return [por_horario[melhor][pa] for pa in DESLOCAMENTO_PA]
+    melhor = min(completos, key=distancia_s)
+    return [por_horario[melhor][pressao_pa] for pressao_pa in DESLOCAMENTO_PA]
 
 
 def deslocamento_medio(niveis: list[list[dict]], lat: float, lon: float) -> tuple[float, float] | None:
-    """(para o norte, para o leste), em km/min: a média do vento nos níveis dados."""
-    valores = [uv for registros in niveis if (uv := uv_no_ponto(registros, lat, lon)) is not None]
-    if len(valores) < len(niveis) or not valores:
+    """A média do vento nos níveis dados, como velocidade de deslocamento.
+
+    Parâmetros:
+        niveis: os registros [U, V] de cada nível (de carregar_recortado).
+        lat, lon: o ponto, em graus.
+
+    Retorna:
+        (para o norte, para o leste), em km/min; None se faltar o valor em algum nível.
+    """
+    valores = []
+    for registros in niveis:
+        componentes = uv_no_ponto(registros, lat, lon)
+        if componentes is None:
+            return None
+        valores.append(componentes)
+    if not valores:
         return None
-    u = sum(x[0] for x in valores) / len(valores)
-    v = sum(x[1] for x in valores) / len(valores)
-    return v * KM_MIN_POR_MS, u * KM_MIN_POR_MS
+    media_u = sum(componentes[0] for componentes in valores) / len(valores)
+    media_v = sum(componentes[1] for componentes in valores) / len(valores)
+    return media_v * KM_MIN_POR_MS, media_u * KM_MIN_POR_MS
 
 
-def deslocamento(agora: datetime, pasta: Path = config.VENTO_DIR):
-    """Função (lat, lon) -> (vn, ve) em km/min, ou None se não houver vento recente na pasta.
+def deslocamento(agora: datetime, pasta: Path = config.VENTO_DIR
+                 ) -> Callable[[float, float], tuple[float, float] | None] | None:
+    """O vento de deslocamento das tempestades, como função de um ponto.
 
     Lê os arquivos uma vez (carregar_recortado guarda) e devolve a função que o previsao.py usa.
+
+    Parâmetros:
+        agora: hora de referência (UTC), para escolher o horário dos arquivos.
+        pasta: a pasta dos arquivos de vento.
+
+    Retorna:
+        Função (lat, lon) -> (vn, ve) em km/min (ou None no ponto sem valor); None se não
+        houver vento recente na pasta ou se os arquivos estiverem ilegíveis.
     """
     escolhidos = arquivos_de_deslocamento(agora, listar_arquivos(pasta))
     if not escolhidos:
         return None
     try:
-        niveis = [carregar_recortado(a.caminho) for a in escolhidos]
+        niveis = [carregar_recortado(arquivo.caminho) for arquivo in escolhidos]
     except (OSError, ValueError, KeyError, TypeError):
         return None
-    return lambda lat, lon: deslocamento_medio(niveis, lat, lon)
+
+    def no_ponto(lat: float, lon: float) -> tuple[float, float] | None:
+        """Vento de deslocamento no ponto, em km/min (para o norte, para o leste)."""
+        return deslocamento_medio(niveis, lat, lon)
+
+    return no_ponto
 
 
-_FL_DA_PRESSAO = {pa: fl for fl, pa in config.VENTO_FL_PARA_PA.items()}
+_FL_DA_PRESSAO = {pressao_pa: fl for fl, pressao_pa in config.VENTO_FL_PARA_PA.items()}
 
 
 def fl_da_pressao(pa: int) -> int:
-    """Nível de voo de um nível de pressão: o mesmo do painel de vento (500 hPa = FL180);
-    para os outros níveis, a atmosfera padrão arredondada de 5 em 5."""
+    """Nível de voo de um nível de pressão.
+
+    Para os níveis do painel de vento, o mesmo do painel (500 hPa = FL180); para os outros, a
+    atmosfera padrão arredondada de 5 em 5.
+
+    Parâmetros:
+        pa: pressão, em Pa.
+    """
     if pa in _FL_DA_PRESSAO:
         return _FL_DA_PRESSAO[pa]
     pes = 145366.45 * (1 - (pa / 101325) ** 0.190284)

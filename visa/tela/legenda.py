@@ -3,6 +3,7 @@ Centro Logístico de Simulação Meteorológica
 Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
 
 Legenda: uma só, flutuando sobre o mapa, com as camadas meteorológicas ligadas.
+Criada por interface.pagina().
 
 Ela depende de ~25 valores espalhados (preferências, a previsão de tempo severo escolhida,
 o horário da imagem de satélite, a animação). Em vez de avisar a legenda em cada lugar que
@@ -37,6 +38,12 @@ LEGENDA_RAIOS_INTENSIDADE = ('/radar/wms?REQUEST=GetLegendGraphic&VERSION=1.1.1&
 
 
 def _item(titulo: str, subtitulo: str = '') -> None:
+    """Título de uma camada na legenda, com um subtítulo opcional ao lado.
+
+    Parâmetros:
+        titulo: nome da camada (Radar, Raios...).
+        subtitulo: detalhe (produto, nível, horário); vazio para não mostrar.
+    """
     with ui.row().classes('items-baseline gap-1 q-mt-xs no-wrap'):
         ui.label(titulo).classes('legenda-titulo')
         if subtitulo:
@@ -44,39 +51,66 @@ def _item(titulo: str, subtitulo: str = '') -> None:
 
 
 class Legenda:
+    """A legenda flutuante sobre o mapa; redesenha só quando a `assinatura()` muda.
+
+    Atributos:
+        doca: o lugar da legenda sobre o mapa (AreaDoMapa.doca_legenda).
+        prefs: preferências do usuário.
+        camadas: as camadas da página.
+    """
 
     INTERVALO_S = 0.5
 
     def __init__(self, area: AreaDoMapa, prefs: dict, camadas_: camadas.CamadasDaPagina) -> None:
-        self.doca, self.prefs, self.c = area.doca_legenda, prefs, camadas_
+        """Guarda onde desenhar e começa o relógio.
+
+        Parâmetros:
+            area: a área do mapa (onde fica a doca da legenda).
+            prefs: preferências do usuário.
+            camadas_: as camadas da página.
+        """
+        self.doca = area.doca_legenda
+        self.prefs = prefs
+        self.camadas = camadas_
         self._mostrada: tuple = ()
         ui.timer(self.INTERVALO_S, self.desenhar)
 
     def assinatura(self) -> tuple:
-        """Tudo o que, se mudar, muda o desenho da legenda."""
-        p, e, imagem = self.prefs, self.c.severo.escolha, self.c.satelite.imagem
-        return (p['legenda_aberta'], self.c.animacao.ativa, p['satelite_ligado'], p['satelite_tipo'],
-                imagem.quando if imagem else None, p['radar_fonte'], p['radar_produto_api'],
-                p['radar_ligado'], p['dbz_min'], p['radar_produto'], p['raios_fonte'],
-                p['radar_alcance'], p['radar_altura'], p['raios_ligado'],
-                p['raios_classificacao'], p['severo_ligado'], e['origem'], e['tipo'], e['validade'],
-                p['severo_estilo']['cor'], tuple(p['wifs'].items()), p['wifs_fl'],
-                p['vento_ligado'], p['vento_fl'], p['aerodromos_ligado'])
+        """Tudo o que, se mudar, muda o desenho da legenda.
+
+        REGRA: algo novo na legenda entra também aqui (DECISOES.md, 5.3).
+
+        Retorna:
+            Uma tupla, comparada com a do último desenho.
+        """
+        prefs = self.prefs
+        escolha = self.camadas.severo.escolha
+        imagem = self.camadas.satelite.imagem
+        quando_satelite = imagem.quando if imagem else None
+        return (prefs['legenda_aberta'], self.camadas.animacao.ativa,
+                prefs['satelite_ligado'], prefs['satelite_tipo'], quando_satelite,
+                prefs['radar_fonte'], prefs['radar_produto_api'],
+                prefs['radar_ligado'], prefs['dbz_min'], prefs['radar_produto'], prefs['raios_fonte'],
+                prefs['radar_alcance'], prefs['radar_altura'], prefs['raios_ligado'],
+                prefs['raios_classificacao'], prefs['severo_ligado'],
+                escolha['origem'], escolha['tipo'], escolha['validade'],
+                prefs['severo_estilo']['cor'], tuple(prefs['wifs'].items()), prefs['wifs_fl'],
+                prefs['vento_ligado'], prefs['vento_fl'], prefs['aerodromos_ligado'])
 
     def desenhar(self) -> None:
+        """Redesenha a legenda (só se a assinatura mudou): título, botão de abrir/recolher e as partes."""
         assinatura = self.assinatura()
         if assinatura == self._mostrada:
             return
         self._mostrada = assinatura
-        p = self.prefs
+        aberta = self.prefs['legenda_aberta']
         self.doca.clear()
         with self.doca:
             with ui.row().classes('w-full items-center no-wrap'):
                 ui.label('Legenda').classes('legenda-titulo col')
-                ui.button(icon='expand_more' if p['legenda_aberta'] else 'expand_less',
-                          on_click=lambda: p.update(legenda_aberta=not p['legenda_aberta'])) \
+                ui.button(icon='expand_more' if aberta else 'expand_less', on_click=self._abrir_ou_recolher) \
                     .props('flat dense round size=xs color=grey-5')
-            if not p['legenda_aberta']:
+            if not aberta:
                 return
             # Cada função desenha a sua parte e diz se desenhou algo
             partes = [self._satelite(), self._radar(), self._raios(), self._severo(), self._wifs(),
@@ -84,77 +118,96 @@ class Legenda:
             if not any(partes):
                 ui.label('Nenhuma camada meteorológica ligada').classes('legenda-texto')
 
+    def _abrir_ou_recolher(self) -> None:
+        """Botão da legenda: abre ou recolhe (o relógio redesenha na próxima volta)."""
+        self.prefs['legenda_aberta'] = not self.prefs['legenda_aberta']
+
+    # --- Uma parte por camada: desenha e diz se desenhou algo -------------------------
+
     def _satelite(self) -> bool:
-        p = self.prefs
-        if not p['satelite_ligado']:
+        """Satélite: o tipo de imagem, o horário e como ler as cores."""
+        prefs = self.prefs
+        if not prefs['satelite_ligado']:
             return False
-        imagem = self.c.satelite.imagem
-        if self.c.animacao.ativa:      # o horário de cada quadro está na linha do tempo
+        imagem = self.camadas.satelite.imagem
+        if self.camadas.animacao.ativa:      # o horário de cada quadro está na linha do tempo
             quando = ' · animação'
+        elif imagem and imagem.quando:
+            quando = f' · {imagem.quando:%H:%MZ}'
         else:
-            quando = f' · {imagem.quando:%H:%MZ}' if imagem and imagem.quando else ''
-        _item('Satélite', redemet.SATELITES[p['satelite_tipo']].lower() + quando)
-        ui.label(LEITURA_SATELITE[p['satelite_tipo']]).classes('legenda-texto')
+            quando = ''
+        _item('Satélite', redemet.SATELITES[prefs['satelite_tipo']].lower() + quando)
+        ui.label(LEITURA_SATELITE[prefs['satelite_tipo']]).classes('legenda-texto')
         return True
 
     def _radar(self) -> bool:
-        p = self.prefs
-        if not p['radar_ligado']:
+        """Radar: o produto (API ou GeoServer) e a escala de dBZ."""
+        prefs = self.prefs
+        if not prefs['radar_ligado']:
             return False
-        if self.c.radar.pela_api():
-            rotulo, raio_km = redemet.PRODUTOS_RADAR[p['radar_produto_api']]
+        if self.camadas.radar.pela_api():
+            rotulo, raio_km = redemet.PRODUTOS_RADAR[prefs['radar_produto_api']]
             detalhe = f'{rotulo} {raio_km} km · API'
         else:
-            detalhe = f"{radar.PRODUTOS[p['radar_produto']]} {radar.ALCANCES[p['radar_alcance']]}"
-            if p['radar_produto'] == 'cappi':
-                detalhe += f" · {radar.ALTURAS_CAPPI[p['radar_altura']]}"
+            detalhe = f"{radar.PRODUTOS[prefs['radar_produto']]} {radar.ALCANCES[prefs['radar_alcance']]}"
+            if prefs['radar_produto'] == 'cappi':
+                detalhe += f" · {radar.ALTURAS_CAPPI[prefs['radar_altura']]}"
             detalhe += ' · GeoServer'
         _item('Radar', f'{detalhe} · dBZ')
-        barra_dbz(p['dbz_min'])
+        barra_dbz(prefs['dbz_min'])
         return True
 
     def _raios(self) -> bool:
-        p = self.prefs
-        if not p['raios_ligado']:
+        """Raios: as cores das células (API) ou a classificação escolhida (GeoServer)."""
+        prefs = self.prefs
+        if not prefs['raios_ligado']:
             return False
-        if self.c.raios.pela_api():
+        if self.camadas.raios.pela_api():
             _item('Raios', 'células de 0,1° com descargas · API')
             bolinhas([(cor, texto) for _, cor, texto in redemet.RAIOS_CLASSES])
         else:
-            _item('Raios', raios.CLASSIFICACOES[p['raios_classificacao']].lower())
-            if p['raios_classificacao'] == 'tempo':
+            _item('Raios', raios.CLASSIFICACOES[prefs['raios_classificacao']].lower())
+            if prefs['raios_classificacao'] == 'tempo':
                 bolinhas(raios.LEGENDA_TEMPO, linha=True)
             else:
                 imagem_legenda(LEGENDA_RAIOS_INTENSIDADE)
         return True
 
     def _severo(self) -> bool:
-        p = self.prefs
-        if not p['severo_ligado']:
+        """Tempo severo: modelo e validade escolhidos, e a cor dos pontos ou áreas de risco."""
+        prefs = self.prefs
+        if not prefs['severo_ligado']:
             return False
-        e = self.c.severo.escolha
-        texto = f"{(e['origem'] or '').upper()} · válido {severo.rotulo(e['validade'])}" if e['validade'] \
-            else 'carregando…'
+        escolha = self.camadas.severo.escolha
+        if escolha['validade']:
+            texto = f"{(escolha['origem'] or '').upper()} · válido {severo.rotulo(escolha['validade'])}"
+        else:
+            texto = 'carregando…'
         _item('Tempo severo', texto)
-        bolinhas([(p['severo_estilo']['cor'], 'pontos de risco' if e['tipo'] == 'ponto' else 'áreas de risco'),
+        risco = 'pontos de risco' if escolha['tipo'] == 'ponto' else 'áreas de risco'
+        bolinhas([(prefs['severo_estilo']['cor'], risco),
                   ('#e2e8f0', 'tracejado: área coberta pelo modelo')])
         return True
 
     def _wifs(self) -> bool:
-        p = self.prefs
-        ligadas = [camada for camada in wifs.CAMADAS if p['wifs'][camada.chave]]
+        """WIFS: uma entrada (com a imagem de legenda do GeoServer) por variável ligada."""
+        prefs = self.prefs
+        ligadas = [camada for camada in wifs.CAMADAS if prefs['wifs'][camada.chave]]
         for camada in ligadas:
-            _item(camada.titulo, f"WIFS · FL{p['wifs_fl']:03d}")
+            _item(camada.titulo, f"WIFS · FL{prefs['wifs_fl']:03d}")
             imagem_legenda(wifs.url_legenda(camada.chave))
         return bool(ligadas)
 
     def _vento(self) -> bool:
-        p = self.prefs
-        if p['vento_ligado']:
-            _item('Vento', f"FL{p['vento_fl']:03d} · partículas, valor sob o cursor")
-        return p['vento_ligado']
+        """Vento: o nível de voo mostrado."""
+        prefs = self.prefs
+        if not prefs['vento_ligado']:
+            return False
+        _item('Vento', f"FL{prefs['vento_fl']:03d} · partículas, valor sob o cursor")
+        return True
 
     def _aerodromos(self) -> bool:
+        """Aeródromos: as cores da condição pelo METAR."""
         if not self.prefs['aerodromos_ligado']:
             return False
         _item('Aeródromos', 'condição pelo METAR')

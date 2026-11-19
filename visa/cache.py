@@ -15,13 +15,29 @@ import time
 
 
 def ainda_vale(guardado_em: float | None, validade_s: float) -> bool:
-    """Guardado (em time.monotonic()) há menos de `validade_s` segundos?"""
+    """Diz se um valor guardado ainda está dentro da validade.
+
+    Parâmetros:
+        guardado_em: instante em que o valor foi guardado, em `time.monotonic()`; None = nunca.
+        validade_s: por quanto tempo o valor serve, em segundos.
+
+    Retorna:
+        True se foi guardado há menos de `validade_s` segundos.
+    """
     return guardado_em is not None and time.monotonic() - guardado_em < validade_s
 
 
 def guardar(cache: dict, chave, valor, limite: int) -> None:
-    """Guarda no cache; se passou do limite, descarta o item mais antigo."""
+    """Guarda um valor no cache; se passou do limite, descarta os itens mais antigos.
+
+    Parâmetros:
+        cache: o dict usado como cache (alterado no lugar).
+        chave: chave do valor.
+        valor: o que guardar.
+        limite: número máximo de itens no cache.
+    """
     cache.pop(chave, None)      # regravar uma chave a põe no fim (é o item mais novo)
     cache[chave] = valor
     while len(cache) > limite:
-        cache.pop(next(iter(cache)))
+        mais_antiga = next(iter(cache))
+        cache.pop(mais_antiga)

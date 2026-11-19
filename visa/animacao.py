@@ -25,6 +25,15 @@ TOLERANCIA_RADAR_MIN = 3   # o radar de 16:38 já vale para o passo de 16:40 (e 
 
 @dataclass(frozen=True)
 class Passo:
+    """Um passo da linha do tempo: o que mostrar de cada camada naquele horário.
+
+    Atributos:
+        quando: horário do passo (UTC).
+        satelite: imagem de satélite do passo, ou None se ainda não havia nenhuma.
+        radar: quadro de radar (várias estações), ou None.
+        raios: quadro de raios, ou None.
+    """
+
     quando: datetime
     satelite: redemet.Imagem | None
     radar: redemet.QuadroRadar | None
@@ -32,7 +41,16 @@ class Passo:
 
 
 def _ultimo_ate(itens: list, quando: datetime, folga: timedelta = timedelta(0)):
-    """O item mais recente com horário <= quando + folga (itens em ordem de tempo)."""
+    """Acha o item mais recente com horário <= quando + folga.
+
+    Parâmetros:
+        itens: objetos com atributo `quando`, em ordem de tempo.
+        quando: o horário do passo.
+        folga: tolerância para aceitar um item um pouco depois do passo.
+
+    Retorna:
+        O item, ou None se todos são posteriores.
+    """
     escolhido = None
     for item in itens:
         if item.quando <= quando + folga:
@@ -42,26 +60,52 @@ def _ultimo_ate(itens: list, quando: datetime, folga: timedelta = timedelta(0)):
     return escolhido
 
 
-def linha_do_tempo(satelites: list[redemet.Imagem], quadros: list[redemet.QuadroRadar],
-                   janela_min: int, raios: list[redemet.QuadroRaios] = ()) -> list[Passo]:
-    """Passos de 10 em 10 min cobrindo a janela, terminando no dado mais novo."""
-    raios = list(raios)
-    horarios = [i.quando for i in satelites] + [q.quando for q in quadros] + [r.quando for r in raios]
-    if not horarios:
-        return []
-    fim = max(horarios)
-    # Grade alinhada em múltiplos de 10 min (16:40, 16:50...) e um último passo no dado mais novo
+def _momentos(fim: datetime, janela_min: int) -> list[datetime]:
+    """Calcula os horários dos passos: grade de 10 em 10 min e um último no dado mais novo.
+
+    Parâmetros:
+        fim: horário do dado mais novo.
+        janela_min: duração da janela, em min.
+
+    Retorna:
+        Horários em ordem crescente, alinhados em múltiplos de 10 min (16:40, 16:50...), mais `fim`
+        se ele não cair na grade.
+    """
     grade_fim = fim.replace(minute=fim.minute - fim.minute % PASSO_MIN, second=0, microsecond=0)
-    inicio = grade_fim - timedelta(minutes=janela_min)
-    momentos, t = [], inicio
-    while t <= grade_fim:
-        momentos.append(t)
-        t += timedelta(minutes=PASSO_MIN)
+    momento = grade_fim - timedelta(minutes=janela_min)
+    momentos = []
+    while momento <= grade_fim:
+        momentos.append(momento)
+        momento += timedelta(minutes=PASSO_MIN)
     if momentos[-1] < fim:
         momentos.append(fim)
-    folga = timedelta(minutes=TOLERANCIA_RADAR_MIN)
-    passos = [Passo(m, _ultimo_ate(satelites, m), _ultimo_ate(quadros, m, folga), _ultimo_ate(raios, m))
-              for m in momentos]
+    return momentos
+
+
+def linha_do_tempo(satelites: list[redemet.Imagem], quadros: list[redemet.QuadroRadar],
+                   janela_min: int, raios: list[redemet.QuadroRaios] = ()) -> list[Passo]:
+    """Monta os passos de 10 em 10 min cobrindo a janela, terminando no dado mais novo.
+
+    Parâmetros:
+        satelites: imagens de satélite, em ordem de tempo.
+        quadros: quadros de radar, em ordem de tempo.
+        janela_min: duração da animação, em min.
+        raios: quadros de raios, em ordem de tempo.
+
+    Retorna:
+        Os passos, começando no primeiro que tem alguma imagem; vazio se não há dado nenhum.
+    """
+    raios = list(raios)
+    horarios = [imagem.quando for imagem in satelites]
+    horarios += [quadro.quando for quadro in quadros]
+    horarios += [quadro.quando for quadro in raios]
+    if not horarios:
+        return []
+    folga_radar = timedelta(minutes=TOLERANCIA_RADAR_MIN)
+    passos = []
+    for momento in _momentos(max(horarios), janela_min):
+        passos.append(Passo(momento, _ultimo_ate(satelites, momento), _ultimo_ate(quadros, momento, folga_radar),
+                            _ultimo_ate(raios, momento)))
     # Começa no primeiro passo que tem alguma imagem
     while passos and passos[0].satelite is None and passos[0].radar is None and passos[0].raios is None:
         passos.pop(0)
@@ -69,7 +113,15 @@ def linha_do_tempo(satelites: list[redemet.Imagem], quadros: list[redemet.Quadro
 
 
 def rotulo(passo: Passo, agora: datetime | None = None) -> str:
-    """'16:30Z · há 20 min'."""
+    """Monta o texto do passo para a linha do tempo, ex.: '16:30Z · há 20 min'.
+
+    Parâmetros:
+        passo: o passo mostrado.
+        agora: horário atual (UTC); None usa o relógio (os testes passam um fixo).
+
+    Retorna:
+        Horário e idade; acima de 2 h, a idade vai em horas ('há 3,0 h').
+    """
     agora = agora or datetime.now(UTC)
     minutos = max(0, round((agora - passo.quando).total_seconds() / 60))
     idade = f'há {minutos} min' if minutos < 120 else f'há {minutos / 60:.1f} h'.replace('.', ',')
@@ -77,5 +129,12 @@ def rotulo(passo: Passo, agora: datetime | None = None) -> str:
 
 
 def quadros_de_satelite(janela_min: int) -> int:
-    """Quantas imagens de satélite pedir para cobrir a janela (com uma de sobra)."""
+    """Calcula quantas imagens de satélite pedir para cobrir a janela (com uma de sobra).
+
+    Parâmetros:
+        janela_min: duração da animação, em min.
+
+    Retorna:
+        O número de imagens.
+    """
     return janela_min // PASSO_MIN + 2

@@ -46,6 +46,14 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)   # GeoJSONs grandes vão 
 
 @app.get('/espaco/{chave}.geojson')
 def espaco_geojson(chave: str) -> Response:
+    """Um arquivo de espaço aéreo (TMAs, aerovias...) já preparado para o mapa.
+
+    Parâmetros:
+        chave: a chave do arquivo em espaco.POR_CHAVE.
+
+    Retorna:
+        O GeoJSON; 404 se a chave não existe ou não há arquivo local.
+    """
     caminho = espaco.arquivo_local(chave) if chave in espaco.POR_CHAVE else None
     if caminho is None:
         raise HTTPException(404)
@@ -54,12 +62,21 @@ def espaco_geojson(chave: str) -> Response:
 
 @app.get('/radar/wms')
 async def radar_wms(request: Request) -> Response:
+    """Proxy do WMS do GeoServer (radar, raios, WIFS): repassa os parâmetros da consulta."""
     status, conteudo, tipo = await radar.buscar_tile(dict(request.query_params))
     return Response(conteudo, status_code=status, media_type=tipo)
 
 
 @app.get('/redemet/imagem')
 async def redemet_imagem(c: str, dbz: int = 0) -> Response:
+    """Imagem da API da REDEMET (radar, satélite), já reprojetada e filtrada.
+
+    Os nomes curtos `c` e `dbz` são os parâmetros da URL que o navegador pede: não renomear.
+
+    Parâmetros:
+        c: o caminho da imagem, como a API da REDEMET o listou (400 inválido, 404 desconhecido).
+        dbz: limiar em dBZ, de 0 (tudo) a 75; só filtra o radar.
+    """
     status, conteudo, tipo = await redemet.buscar_imagem(c, dbz)
     cabecalhos = {'Cache-Control': 'max-age=3600'} if status == 200 else {}   # o caminho já tem a data
     return Response(conteudo, status_code=status, media_type=tipo, headers=cabecalhos)
@@ -67,6 +84,13 @@ async def redemet_imagem(c: str, dbz: int = 0) -> Response:
 
 @app.get('/redemet/raios')
 def redemet_raios(q: str) -> Response:
+    """Um quadro de raios da API da REDEMET desenhado como imagem.
+
+    `q` é o parâmetro da URL que o navegador pede: não renomear.
+
+    Parâmetros:
+        q: a chave de um quadro já consultado pela camada (404 se desconhecido).
+    """
     status, conteudo, tipo = redemet.imagem_raios(q)
     cabecalhos = {'Cache-Control': 'max-age=3600'} if status == 200 else {}   # um quadro não muda
     return Response(conteudo, status_code=status, media_type=tipo, headers=cabecalhos)

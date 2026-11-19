@@ -6,6 +6,8 @@ WIFS — previsão em altitude: camadas WMS do GeoServer da REDEMET, por nível 
 
 As imagens passam pelo proxy /radar/wms (o GeoServer é interno). O vento do WIFS
 fica na seção "Vento em altitude" (partículas, a partir dos arquivos JSON).
+
+Usado pela camada WIFS (`camadas/prevista.py`), pelas preferências, pelos modos e pela legenda.
 """
 from dataclasses import dataclass
 
@@ -14,10 +16,18 @@ RECARREGA_S = 600   # TIME=current: a cada 10 min o mapa pede os tiles de novo (
 
 @dataclass(frozen=True)
 class CamadaWifs:
-    chave: str       # nome da camada no GeoServer (redemet:<chave>)
+    """Uma camada WIFS do GeoServer.
+
+    Atributos:
+        chave: nome da camada no GeoServer (redemet:<chave>); também a chave nas preferências.
+        titulo: nome no painel.
+        estilo: SLD usado pelo original.
+        icone: ícone do Material (painel).
+    """
+    chave: str
     titulo: str
-    estilo: str      # SLD usado pelo original
-    icone: str       # ícone do Material (painel)
+    estilo: str
+    icone: str
 
 
 CAMADAS = [
@@ -27,7 +37,7 @@ CAMADAS = [
     CamadaWifs('gelo_severo', 'Gelo severo', 'gelo_wifs', 'ac_unit'),
     CamadaWifs('cb_extensao', 'Extensão CB', 'cb_extensao', 'cloud'),
 ]
-POR_CHAVE = {c.chave: c for c in CAMADAS}
+POR_CHAVE = {camada.chave: camada for camada in CAMADAS}
 
 # Nível de voo -> rótulo (altitude aproximada, como no original)
 NIVEIS = {
@@ -41,7 +51,17 @@ OPACIDADE = 0.6
 
 
 def opcoes_wms(chave: str, nivel: int) -> dict:
-    """Opções da camada Leaflet (o que não é do Leaflet vai como parâmetro do WMS)."""
+    """Monta as opções da camada WMS do Leaflet.
+
+    O que não é opção do Leaflet (TIME, ELEVATION) vai como parâmetro do WMS.
+
+    Parâmetros:
+        chave: chave da camada (de CAMADAS).
+        nivel: nível de voo (FL, chave de NIVEIS).
+
+    Retorna:
+        Dict de opções para o `L.tileLayer.wms`.
+    """
     camada = POR_CHAVE[chave]
     return {
         'layers': f'redemet:{camada.chave}', 'styles': camada.estilo,
@@ -52,6 +72,14 @@ def opcoes_wms(chave: str, nivel: int) -> dict:
 
 
 def url_legenda(chave: str) -> str:
+    """Monta a URL da imagem de legenda da camada (GetLegendGraphic, pelo proxy /radar/wms).
+
+    Parâmetros:
+        chave: chave da camada (de CAMADAS).
+
+    Retorna:
+        URL relativa ao nosso servidor.
+    """
     camada = POR_CHAVE[chave]
     return ('/radar/wms?REQUEST=GetLegendGraphic&VERSION=1.1.1&FORMAT=image/png&WIDTH=20&HEIGHT=20'
             f'&LAYER=redemet:{camada.chave}&STYLE=redemet:{camada.estilo}'

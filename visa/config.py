@@ -6,6 +6,9 @@ Configuração do visualizador.
 
 Valores não sensíveis ficam aqui. Credenciais e endereços internos vêm do arquivo
 `.env` (fora do git) — veja `.env.exemplo`. Nada disto é enviado ao navegador.
+
+Usado por quase todos os módulos (`import config`). Para caminhos de arquivos, use
+`RAIZ` (raiz do projeto), não `AQUI` (a pasta `visa/`).
 """
 import os
 from pathlib import Path
@@ -19,6 +22,14 @@ load_dotenv(RAIZ / '.env')
 
 
 def _obrigatorio(nome: str) -> str:
+    """Lê uma variável de ambiente que não pode faltar; sem ela, encerra o programa.
+
+    Parâmetros:
+        nome: nome da variável (ex.: 'VISA_PUSHER_CHAVE'), vinda do ambiente ou do `.env`.
+
+    Retorna:
+        O valor da variável (nunca vazio).
+    """
     valor = os.environ.get(nome)
     if not valor:
         raise SystemExit(f'Variável {nome} ausente. Copie .env.exemplo para .env e preencha.')
@@ -46,7 +57,9 @@ RADAR_ATUALIZA_S = 120          # recarrega as imagens a cada 2 min
 RADAR_TIMEOUT_S = 20
 # Idade da última imagem de cada radar (min): verde, amarelo, vermelho; acima disso, cinza.
 # Os mesmos limites valem para os botões, os círculos de alcance e a barra de saúde.
-RADAR_VERDE_ATE_MIN, RADAR_AMARELO_ATE_MIN, RADAR_VERMELHO_ATE_MIN = 30, 60, 180
+RADAR_VERDE_ATE_MIN = 30
+RADAR_AMARELO_ATE_MIN = 60
+RADAR_VERMELHO_ATE_MIN = 180
 # WFS do mesmo GeoServer (tempo severo). Padrão: o endereço do WMS terminando em /wfs
 GEOSERVER_WFS = os.environ.get('VISA_GEOSERVER_WFS', GEOSERVER_WMS.removesuffix('wms') + 'wfs')
 
@@ -70,10 +83,10 @@ PUSHER_EVENTO = 'aircraft-update'
 TRACKER_AUTH_URL = _obrigatorio('VISA_TRACKER_AUTH_URL')    # inclui o ?apikey=
 TRACKER_TOKEN = _obrigatorio('VISA_TRACKER_TOKEN')          # Bearer
 # Trajetória do voo: <base>/montreal/<indicativo>/<data>?apikey=... (mesmo servidor e apikey da autenticação)
-_auth = urlsplit(TRACKER_AUTH_URL)
-TRACKER_BASE = f'{_auth.scheme}://{_auth.netloc}/ciop-tracker'
-TRACKER_APIKEY = (parse_qs(_auth.query).get('apikey') or [''])[0]
-del _auth                       # só servia para as duas contas acima
+_partes_auth = urlsplit(TRACKER_AUTH_URL)
+TRACKER_BASE = f'{_partes_auth.scheme}://{_partes_auth.netloc}/ciop-tracker'
+TRACKER_APIKEY = (parse_qs(_partes_auth.query).get('apikey') or [''])[0]
+del _partes_auth                # só servia para as duas contas acima
 AERONAVE_EXPIRA_S = 300         # some do mapa se não for vista por 5 min
 AERONAVE_ENVIO_S = 2.0          # de quanto em quanto tempo cada navegador recebe as posições
 

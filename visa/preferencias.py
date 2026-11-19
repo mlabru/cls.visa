@@ -6,6 +6,9 @@ Preferências de cada usuário: os valores iniciais e a migração das que já e
 
 Sem NiceGUI: quem guarda as preferências no navegador é interface.py (app.storage.user);
 aqui só se decide o que elas contêm. Ver DECISOES 5.1.
+
+Os nomes das chaves de `PADRAO` estão gravados nos navegadores dos usuários: renomear uma
+chave faz cada usuário perder o valor salvo dela.
 """
 import copy
 
@@ -23,7 +26,7 @@ PADRAO = {
     'radar_ligado': True,
     'radar_fonte': 'api',            # 'api' (REDEMET, sem VPN) ou 'geoserver' (precisa da VPN)
     'radar_produto_api': 'maxcappi',
-    'radares': [r.codigo for r in radar.RADARES],
+    'radares': [estacao.codigo for estacao in radar.RADARES],
     'radar_produto': 'maxcappi',
     'radar_alcance': '400km',
     'radar_altura': '3',
@@ -45,9 +48,9 @@ PADRAO = {
     'severo_ligado': True,
     'severo_estilo': {'cor': '#6366f1', 'opacidade': 0.6, 'raio_km': 5},
     'wifs_fl': wifs.NIVEL_PADRAO,
-    'wifs': {c.chave: False for c in wifs.CAMADAS},
-    'espaco': {c.chave: c.chave == 'tma' for c in espaco.CAMADAS},          # camada ligada?
-    'estilos': {c.chave: dict(espaco.ESTILO_PADRAO) for c in espaco.CAMADAS if c.estilizavel},
+    'wifs': {camada.chave: False for camada in wifs.CAMADAS},
+    'espaco': {camada.chave: camada.chave == 'tma' for camada in espaco.CAMADAS},   # camada ligada?
+    'estilos': {camada.chave: dict(espaco.ESTILO_PADRAO) for camada in espaco.CAMADAS if camada.estilizavel},
     'animacao_janela_min': animacao.JANELA_PADRAO,
     'terminal': 'SBGR',
     'legenda_aberta': True,
@@ -56,14 +59,23 @@ PADRAO = {
 
 
 def completar(prefs: dict) -> dict:
-    """Acrescenta às preferências salvas o que faltar (chaves novas de versões novas) e corrige
-    valores que deixaram de existir. Altera e devolve o mesmo dicionário."""
-    for chave, valor in PADRAO.items():
-        prefs.setdefault(chave, copy.deepcopy(valor))   # cópia: o PADRAO nunca é alterado
-        if isinstance(valor, dict):  # chaves novas dentro de grupos já salvos
-            for sub, padrao in valor.items():
-                prefs[chave].setdefault(sub, copy.deepcopy(padrao))
-    # Valores salvos que deixaram de existir (ex.: nível de vento removido) voltam ao padrão
+    """Atualiza preferências salvas por uma versão antiga para a versão atual.
+
+    Fluxo:
+        1. acrescenta as chaves de `PADRAO` que faltarem, inclusive dentro de grupos (dicts);
+        2. devolve ao padrão os valores que deixaram de existir (ex.: nível de vento removido).
+
+    Parâmetros:
+        prefs: preferências salvas de um usuário (alterado no lugar).
+
+    Retorna:
+        O mesmo dicionário `prefs`, já completo.
+    """
+    for chave, valor_padrao in PADRAO.items():
+        prefs.setdefault(chave, copy.deepcopy(valor_padrao))   # cópia: o PADRAO nunca é alterado
+        if isinstance(valor_padrao, dict):  # chaves novas dentro de grupos já salvos
+            for subchave, subvalor_padrao in valor_padrao.items():
+                prefs[chave].setdefault(subchave, copy.deepcopy(subvalor_padrao))
     if prefs['vento_fl'] not in config.VENTO_FL_PARA_PA:
         prefs['vento_fl'] = PADRAO['vento_fl']
     return prefs

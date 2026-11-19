@@ -4,7 +4,7 @@ Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
 
 AreaDoMapa: o mapa Leaflet, o fundo apagado e os lugares da legenda e da
 linha do tempo.
-""" 
+"""
 from nicegui import ui
 
 import config
@@ -28,6 +28,7 @@ class AreaDoMapa:
     """
 
     def __init__(self) -> None:
+        """Cria o contêiner, o mapa com o fundo apagado e os dois lugares flutuantes."""
         with ui.element('div').classes('relative w-full') \
                 .style(f'height: calc(100vh - {ALTURA_CABECALHO}px)') as self.area:
             self.mapa = ui.leaflet(
