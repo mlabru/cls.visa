@@ -203,6 +203,18 @@ def mercator_y(lat: float) -> float:
     return math.log(math.tan(math.pi / 4 + math.radians(lat) / 2))
 
 
+def lat_de_mercator(y: float) -> float:
+    """Calcula a latitude de uma coordenada vertical de Mercator (o inverso de mercator_y).
+
+    Parâmetros:
+        y: y de Mercator, em radianos.
+
+    Retorna:
+        A latitude, em graus.
+    """
+    return math.degrees(2 * math.atan(math.exp(y)) - math.pi / 2)
+
+
 def limites(pontos: list[list[float]]) -> list[list[float]] | None:
     """Calcula o retângulo que envolve os pontos.
 

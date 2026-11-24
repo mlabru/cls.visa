@@ -101,6 +101,11 @@ REDEMET_PRODUTOS_URL = 'https://api-redemet.decea.mil.br/produtos'
 REDEMET_ESTATICO_URL = 'https://estatico-redemet.decea.mil.br'   # as imagens (públicas)
 SATELITE_ATUALIZA_S = 300       # o satélite tem imagem nova a cada 10 min
 
+# --- Modelo numérico (WRF, arquivos netCDF locais) -----------------------------
+# Um arquivo por domínio e rodada: wrfd<domínio>_<AAAAMMDDHH>.nc (d1 = maior, d2 = interno). Veja modelo.py.
+MODELO_DIR = Path(os.environ.get('VISA_MODELO_DIR', RAIZ / 'data' / 'netcdf'))
+MODELO_CACHE_IMAGENS = 150      # imagens prontas em memória (uma rodada tem 61 horários)
+
 # --- Espaço aéreo (GeoServer público do DECEA / AISWEB) ------------------------
 # Este servidor fica atrás do Cloudflare, que bloqueia pedidos feitos por programas.
 # Por isso os tiles são buscados direto pelo navegador (não passam pelo Python).

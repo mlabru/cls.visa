@@ -25,6 +25,7 @@ import config
 import espaco
 import impacto
 import interface
+import modelo
 import radar
 import redemet
 
@@ -95,6 +96,24 @@ def redemet_raios(q: str) -> Response:
     cabecalhos = {'Cache-Control': 'max-age=3600'} if status == 200 else {}   # um quadro não muda
     return Response(conteudo, status_code=status, media_type=tipo, headers=cabecalhos)
 
+
+
+@app.get('/modelo/imagem')
+def modelo_imagem(r: str, c: str, h: str, n: int = 0) -> Response:
+    """Um campo do modelo WRF (todos os domínios compostos) como imagem.
+
+    Os nomes curtos são os parâmetros da URL que o navegador pede: não renomear. Rota `def`:
+    a leitura do netCDF e a imagem rodam numa thread.
+
+    Parâmetros:
+        r: a rodada, AAAAMMDDHH.
+        c: a chave do campo (modelo.POR_CHAVE).
+        h: o horário previsto, AAAAMMDDHH (UTC).
+        n: o nível de pressão em hPa (só nos campos por nível).
+    """
+    status, conteudo, tipo = modelo.buscar_imagem(r, c, h, n)
+    cabecalhos = {'Cache-Control': 'max-age=600'} if status == 200 else {}   # uma rodada pode ser regravada
+    return Response(conteudo, status_code=status, media_type=tipo, headers=cabecalhos)
 
 async def iniciar() -> None:
     """Tarefas que rodam enquanto o servidor estiver de pé, uma só para todos os usuários.

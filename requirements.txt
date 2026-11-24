@@ -4,3 +4,4 @@ numpy==2.4.6
 pillow==13.0.0
 websockets==17.4
 python-dotenv==1.2.4
+netCDF4==1.7.4
