@@ -6,9 +6,10 @@ Sonda: o que se sabe sobre um ponto do mapa.
 
 Clique direito no mapa (ou clique com a sonda ligada) e o painel da direita mostra, para
 aquele ponto: radar (dBZ agora e nas últimas horas), raios por perto, se está numa área
-de tempo severo prevista, o perfil vertical do vento e o aeródromo mais próximo.
+de tempo severo prevista, o perfil vertical do vento, o perfil previsto pelo modelo WRF
+(temperatura, orvalho, umidade e vento por nível, isoterma de 0 °C) e o aeródromo mais próximo.
 
-Tudo é lido de dados que o servidor já tem (API da REDEMET, arquivos de vento,
+Tudo é lido de dados que o servidor já tem (API da REDEMET, arquivos de vento e do modelo,
 aeródromos). O radar é lido da cor do pixel das imagens — a mesma tabela de cores do
 filtro de dBZ.
 
@@ -16,13 +17,14 @@ Quem usa: `tela/gaveta.py` (`sondar`, `Resultado`) e `impacto.py` (`raios_perto`
 """
 import asyncio
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import NamedTuple
 
 import numpy as np
 
 import aerodromos
 import geo
+import modelo
 import radar
 import redemet
 import vento
@@ -205,6 +207,8 @@ class Resultado:
         severo_validade: validade da previsão de tempo severo.
         vento: (FL, direção em graus, velocidade em kt) de cada nível, de baixo para cima.
         vento_referencia: horário dos arquivos de vento usados.
+        perfil: o perfil previsto pelo modelo WRF (None = fora da área ou sem rodada).
+        perfil_erro: por que não há perfil ('' = sem erro).
         aerodromo: o aeródromo mais próximo (None = lista de aeródromos vazia).
     """
     lat: float
@@ -219,6 +223,8 @@ class Resultado:
     severo_validade: str | None = None
     vento: list[tuple[int, int, int]] = field(default_factory=list)
     vento_referencia: datetime | None = None
+    perfil: modelo.Perfil | None = None
+    perfil_erro: str = ''
     aerodromo: AerodromoPerto | None = None
 
     @property
@@ -330,6 +336,34 @@ def _vento(resultado: Resultado) -> None:
     resultado.vento_referencia = horario
 
 
+def _modelo(resultado: Resultado, rodada: modelo.Rodada | None, horario: datetime | None) -> None:
+    """Perfil previsto pelo WRF no ponto (lê os arquivos: chamar numa thread).
+
+    Parâmetros:
+        resultado: onde guardar (perfil, perfil_erro).
+        rodada: a rodada da camada do modelo (None = a mais recente da pasta).
+        horario: o horário da camada (None = o mais perto de agora).
+    """
+    try:
+        if rodada is None:
+            rodadas = modelo.listar_rodadas()
+            if not rodadas:
+                resultado.perfil_erro = 'nenhuma rodada do modelo na pasta'
+                return
+            rodada = rodadas[0]
+        horarios = modelo.horarios_da_rodada(rodada)
+        if horario not in horarios:
+            horario = modelo.horario_mais_proximo(horarios, datetime.now(UTC))
+        if horario is None:
+            resultado.perfil_erro = f'a rodada {rodada.nome} não tem horários'
+            return
+        resultado.perfil = modelo.perfil(rodada, horario, resultado.lat, resultado.lon)
+        if resultado.perfil is None:
+            resultado.perfil_erro = 'fora da área do modelo'
+    except modelo.Indisponivel as erro:
+        resultado.perfil_erro = str(erro)
+
+
 def _distancia_ate(resultado: Resultado, aerodromo: aerodromos.Aerodromo) -> float:
     """Distância do ponto consultado até o aeródromo, km."""
     return geo.distancia_km(resultado.lat, resultado.lon, aerodromo.lat, aerodromo.lon)
@@ -345,13 +379,14 @@ def _aerodromo(resultado: Resultado) -> None:
 
 
 async def sondar(lat: float, lon: float, produto_radar: str, severo_feicoes: list[dict] | None = None,
-                 severo_tipo: str = 'area', severo_raio_km: float = 5, severo_validade: str | None = None
+                 severo_tipo: str = 'area', severo_raio_km: float = 5, severo_validade: str | None = None,
+                 modelo_rodada: modelo.Rodada | None = None, modelo_horario: datetime | None = None
                  ) -> Resultado:
     """Reúne tudo o que se sabe sobre um ponto do mapa.
 
     Fluxo:
         1. radar e raios ao mesmo tempo (API da REDEMET);
-        2. vento, lido dos arquivos numa thread;
+        2. vento e perfil do modelo, lidos dos arquivos numa thread;
         3. aeródromo mais próximo;
         4. tempo severo, se a camada estiver ligada.
 
@@ -363,6 +398,8 @@ async def sondar(lat: float, lon: float, produto_radar: str, severo_feicoes: lis
         severo_tipo: 'ponto' ou 'area' (em_area_severa).
         severo_raio_km: alcance de cada ponto de tempo severo, km.
         severo_validade: validade da previsão, só repassada ao resultado.
+        modelo_rodada, modelo_horario: os da camada do modelo, se ligada (None = a rodada mais
+            recente, no horário mais perto de agora).
 
     Retorna:
         O Resultado; as partes que falharam ficam vazias, com o erro no campo `*_erro`.
@@ -370,6 +407,7 @@ async def sondar(lat: float, lon: float, produto_radar: str, severo_feicoes: lis
     resultado = Resultado(lat, lon)
     await asyncio.gather(_radar(resultado, produto_radar), _raios(resultado))
     await asyncio.to_thread(_vento, resultado)       # lê arquivos do disco: fora do laço principal
+    await asyncio.to_thread(_modelo, resultado, modelo_rodada, modelo_horario)
     _aerodromo(resultado)
     if severo_feicoes is not None:
         resultado.severo = em_area_severa(severo_feicoes, severo_tipo, severo_raio_km, lat, lon)

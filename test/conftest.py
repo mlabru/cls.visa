@@ -27,7 +27,8 @@ def rodada(tmp_path):
             if nivel == 0:
                 valores[0, :] = 1e30                                    # abaixo do terreno
             return valores
-        return np.full((len(la), len(lo)), 10.0)                        # wspd 10 m/s
+        valores = {'td': -25.0, 'rh': 50.0, 'u': 10.0, 'v': 0.0, 'mcape': 1000.0}   # u, v: vento de oeste
+        return np.full((len(la), len(lo)), valores.get(nome, 10.0))         # wspd 10 m/s
     netcdf_teste.escrever(tmp_path / 'wrfd1_2026112300.nc', netcdf_teste.lats_mercator(-30, -20, 40), np.arange(310, 320, 0.5) + 0.25,
               preencher=preencher)
 

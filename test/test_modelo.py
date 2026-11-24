@@ -1,3 +1,4 @@
+import dataclasses
 import io
 from datetime import UTC, datetime
 
@@ -71,7 +72,7 @@ def test_campo_por_nivel_unidade_e_sem_valor(rodada):
     with pytest.raises(modelo.Indisponivel, match='horário'):
         modelo.ler_campo(caminho, modelo.POR_CHAVE['vento'], datetime(2026, 11, 24, tzinfo=UTC), 500)
     with pytest.raises(modelo.Indisponivel, match='variável'):
-        modelo.ler_campo(caminho, modelo.POR_CHAVE['cape'], INICIO)
+        modelo.ler_campo(caminho, dataclasses.replace(modelo.POR_CHAVE['cape'], variavel='nada'), INICIO)
 
 
 def test_indices_de_cor():
@@ -122,3 +123,38 @@ def test_paletas_crescentes_e_cores_validas():
         assert limites == sorted(set(limites)), campo.chave
         assert all(len(cor) == 7 and cor[0] == '#' for _, cor in campo.paleta), campo.chave
         assert len(campo.paleta) < 255, campo.chave          # índice 0 é o transparente, um byte por pixel
+
+
+def _nivel(hpa, temperatura):
+    return modelo.NivelPerfil(hpa, 0, temperatura, None, None, None, None)
+
+
+def test_perfil_pelo_dominio_mais_fino(rodada):
+    rodada_ = modelo.listar_rodadas(rodada)[0]
+    uma_hora = datetime(2026, 11, 23, 1, tzinfo=UTC)
+    no_d2 = modelo.perfil(rodada_, uma_hora, -25, -45)
+    assert no_d2.arquivo.name == 'wrfd2_2026112300.nc' and no_d2.resolucao_km == pytest.approx(10, rel=0.1)
+    assert [nivel.hpa for nivel in no_d2.niveis] == NIVEIS                    # de baixo para cima
+    topo = no_d2.niveis[-1]
+    assert (topo.fl, topo.temperatura, topo.orvalho, topo.umidade) == (340, -20, -25, 50)
+    assert (topo.direcao, topo.velocidade_kt) == (270, 19)                    # 10 m/s de oeste
+    assert (no_d2.cape, no_d2.refletividade, no_d2.chuva_1h) == (1000, 51, pytest.approx(4.0))
+
+    no_d1 = modelo.perfil(rodada_, INICIO, -29.95, -48)                      # linha mais ao sul do d1
+    assert no_d1.arquivo.name == 'wrfd1_2026112300.nc'
+    assert [nivel.hpa for nivel in no_d1.niveis] == NIVEIS[1:]                # 1000 hPa abaixo do terreno
+    assert no_d1.chuva_1h is None                                             # primeiro horário: sem anterior
+
+    assert modelo.perfil(rodada_, INICIO, 0, 0) is None                        # fora da área
+    with pytest.raises(modelo.Indisponivel, match='horário'):
+        modelo.perfil(rodada_, datetime(2026, 12, 1, tzinfo=UTC), -25, -45)
+
+
+def test_isoterma_zero():
+    niveis = (_nivel(1000, 10), _nivel(850, 2), _nivel(700, -6), _nivel(500, -20))
+    hpa = modelo.isoterma_zero(niveis)
+    assert hpa == pytest.approx(850 * (700 / 850) ** 0.25)                   # 2 °C de 8: 1/4 do caminho em ln(p)
+    assert modelo.texto_isoterma(niveis).startswith('~FL0')
+    assert modelo.texto_isoterma((_nivel(850, -2), _nivel(700, -8))).startswith('abaixo do primeiro nível')
+    assert modelo.texto_isoterma((_nivel(850, 5), _nivel(700, 1))) == 'acima de todos os níveis'
+    assert modelo.texto_isoterma(()) == 'sem níveis'

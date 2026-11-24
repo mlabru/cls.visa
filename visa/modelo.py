@@ -23,9 +23,10 @@ O que este módulo garante:
 Não alimenta o painel de impacto nem o FAB.ia.
 
 Quem usa: a rota /modelo/imagem (main.py), a camada `CamadaModelo` (camadas/prevista.py), o painel,
-a legenda e a barra de saúde (tela/). Não importa o NiceGUI.
+a legenda e a barra de saúde (tela/), e a sonda (`perfil`, sonda.py). Não importa o NiceGUI.
 """
 import io
+import itertools
 import logging
 import math
 import re
@@ -42,6 +43,7 @@ from PIL import Image
 import cache
 import config
 import geo
+import vento
 
 log = logging.getLogger(__name__)
 
@@ -74,12 +76,14 @@ class Rodada:
     arquivos: tuple[Path, ...]
 
 
-def listar_rodadas(pasta: Path = config.MODELO_DIR) -> list[Rodada]:
+def listar_rodadas(pasta: Path | None = None) -> list[Rodada]:
     """Todas as rodadas da pasta, da mais recente para a mais antiga.
 
     Parâmetros:
-        pasta: onde procurar (arquivos fora do padrão wrfd<N>_<AAAAMMDDHH>.nc são ignorados).
+        pasta: onde procurar (arquivos fora do padrão wrfd<N>_<AAAAMMDDHH>.nc são ignorados);
+            None = config.MODELO_DIR, lido a cada chamada (os testes trocam a pasta por ele).
     """
+    pasta = pasta or config.MODELO_DIR
     por_nome: dict[str, list[tuple[int, Path]]] = {}
     for caminho in pasta.glob('wrfd*.nc'):
         partes = _PADRAO.match(caminho.name)
@@ -95,7 +99,7 @@ def listar_rodadas(pasta: Path = config.MODELO_DIR) -> list[Rodada]:
     return sorted(rodadas, key=lambda rodada: rodada.inicio, reverse=True)
 
 
-def rodada_por_nome(nome: str, pasta: Path = config.MODELO_DIR) -> Rodada | None:
+def rodada_por_nome(nome: str, pasta: Path | None = None) -> Rodada | None:
     """A rodada com esse nome (AAAAMMDDHH), ou None se não houver."""
     return next((rodada for rodada in listar_rodadas(pasta) if rodada.nome == nome), None)
 
@@ -484,6 +488,187 @@ def horarios_da_rodada(rodada: Rodada) -> tuple[datetime, ...]:
 
 
 # ---------------------------------------------------------------------------
+# Perfil vertical num ponto (para a sonda)
+# ---------------------------------------------------------------------------
+
+PERFIL_TOPO_HPA = 100           # níveis acima deste ficam de fora (50 hPa vem vazio do modelo)
+_PERFIL_3D = ('tc', 'td', 'rh', 'u', 'v')
+_PERFIL_SUPERFICIE = ('mcape', 'max_dbz')
+
+
+@dataclass(frozen=True)
+class NivelPerfil:
+    """Um nível do perfil vertical previsto.
+
+    Atributos:
+        hpa: nível de pressão.
+        fl: nível de voo (atmosfera padrão; os do painel de vento nos níveis dele).
+        temperatura, orvalho: °C.
+        umidade: umidade relativa, %.
+        direcao: de onde vem o vento, graus (1 a 360).
+        velocidade_kt: velocidade do vento, kt.
+    """
+    hpa: int
+    fl: int
+    temperatura: float
+    orvalho: float | None
+    umidade: float | None
+    direcao: int | None
+    velocidade_kt: int | None
+
+
+@dataclass(frozen=True)
+class Perfil:
+    """O que o modelo prevê num ponto, num horário.
+
+    Atributos:
+        rodada: a rodada usada.
+        horario: o horário previsto (UTC).
+        arquivo: o domínio usado (o mais fino que cobre o ponto).
+        resolucao_km: largura de uma célula da grade nesse ponto, km.
+        niveis: os níveis acima do terreno, de baixo para cima, até PERFIL_TOPO_HPA.
+        cape: CAPE máximo, J/kg (None sem valor).
+        refletividade: refletividade máxima simulada, dBZ.
+        chuva_1h: chuva na última hora, mm (None no primeiro horário da rodada).
+    """
+    rodada: Rodada
+    horario: datetime
+    arquivo: Path
+    resolucao_km: float
+    niveis: tuple[NivelPerfil, ...]
+    cape: float | None
+    refletividade: float | None
+    chuva_1h: float | None
+
+
+def _numero(valor) -> float | None:
+    """Um valor lido do netCDF como float; None se vier sem valor (máscara ou NaN)."""
+    if np.ma.is_masked(valor):
+        return None
+    numero = float(valor)
+    return numero if math.isfinite(numero) else None
+
+
+def _ler_ponto(caminho: Path, passo: int, linha_arquivo: int, coluna: int) -> dict[str, np.ndarray]:
+    """Lê só a coluna do ponto (todas as alturas) das variáveis do perfil, abrindo o arquivo uma vez.
+
+    Parâmetros:
+        caminho: o arquivo.
+        passo: índice do horário.
+        linha_arquivo: índice da latitude no arquivo (do sul para o norte).
+        coluna: índice da longitude.
+
+    Retorna:
+        variável -> valores (3D: um por nível; superfície: um só); 'chuva_antes' e 'chuva_agora'
+        com rainc + rainnc no horário anterior (se houver) e no pedido.
+    """
+    valores = {}
+    try:
+        with _LEITURA, netCDF4.Dataset(caminho) as arquivo:
+            for nome in _PERFIL_3D:
+                valores[nome] = np.ma.filled(np.ma.asarray(arquivo[nome][passo, :, linha_arquivo, coluna],
+                                                           dtype=float), np.nan)
+            for nome in _PERFIL_SUPERFICIE:
+                valores[nome] = arquivo[nome][passo, 0, linha_arquivo, coluna]
+            for chave, indice in (('chuva_agora', passo), ('chuva_antes', passo - 1)):
+                if indice >= 0:
+                    valores[chave] = (_numero(arquivo['rainc'][indice, 0, linha_arquivo, coluna]),
+                                      _numero(arquivo['rainnc'][indice, 0, linha_arquivo, coluna]))
+    except (OSError, IndexError) as erro:
+        raise Indisponivel(f'Modelo: não foi possível ler o perfil de {caminho.name} ({erro})') from erro
+    return valores
+
+
+def _chuva_da_hora(valores: dict) -> float | None:
+    """Chuva na última hora a partir dos acumulados lidos por _ler_ponto (None sem horário anterior)."""
+    antes, agora = valores.get('chuva_antes'), valores.get('chuva_agora')
+    if antes is None or agora is None or None in antes or None in agora:
+        return None
+    return max(sum(agora) - sum(antes), 0.0)
+
+
+def _niveis_do_perfil(niveis_hpa: tuple[int, ...], valores: dict[str, np.ndarray]) -> tuple[NivelPerfil, ...]:
+    """Os níveis com temperatura (acima do terreno), de baixo para cima, até PERFIL_TOPO_HPA."""
+    resultado = []
+    for indice, hpa in sorted(enumerate(niveis_hpa), key=lambda par: -par[1]):
+        temperatura = _numero(valores['tc'][indice])
+        if hpa < PERFIL_TOPO_HPA or temperatura is None:
+            continue
+        vento_u, vento_v = _numero(valores['u'][indice]), _numero(valores['v'][indice])
+        direcao, velocidade = (None, None)
+        if vento_u is not None and vento_v is not None:
+            direcao, velocidade = vento.direcao_velocidade(vento_u, vento_v)
+        resultado.append(NivelPerfil(hpa, vento.fl_da_pressao(hpa * 100), temperatura,
+                                     _numero(valores['td'][indice]), _numero(valores['rh'][indice]),
+                                     direcao, velocidade))
+    return tuple(resultado)
+
+
+def perfil(rodada: Rodada, horario: datetime, lat: float, lon: float) -> Perfil | None:
+    """O perfil vertical previsto no ponto, pelo domínio mais fino que o cobre.
+
+    Lê só a coluna do ponto (não os campos inteiros): ~10 leituras pequenas, numa abertura do arquivo.
+
+    Parâmetros:
+        rodada: a rodada.
+        horario: o horário previsto (um dos da rodada).
+        lat, lon: o ponto, em graus.
+
+    Retorna:
+        O perfil; None se o ponto está fora da área do modelo.
+
+    Exceções:
+        Indisponivel: arquivo ilegível, horário fora da rodada.
+    """
+    for caminho in reversed(rodada.arquivos):        # do domínio mais fino para o maior
+        info = cabecalho(caminho)
+        indice = info.grade.indice(lat, lon)
+        if indice is None or horario not in info.horarios:
+            continue
+        linha, coluna = indice
+        passo = info.horarios.index(horario)
+        valores = _ler_ponto(caminho, passo, info.grade.ny - 1 - linha, coluna)
+        resolucao_km = info.grade.passo_lon * geo.KM_POR_GRAU * math.cos(math.radians(lat))
+        return Perfil(rodada, horario, caminho, resolucao_km, _niveis_do_perfil(info.niveis_hpa, valores),
+                      _numero(valores['mcape']), _numero(valores['max_dbz']), _chuva_da_hora(valores))
+    if horario not in horarios_da_rodada(rodada):
+        raise Indisponivel(f'Modelo: a rodada {rodada.nome} não tem o horário {horario:%d/%m %H}Z')
+    return None
+
+
+def isoterma_zero(niveis: tuple[NivelPerfil, ...]) -> float | None:
+    """A pressão (hPa) onde a temperatura cruza 0 °C pela primeira vez, subindo a partir do chão.
+
+    Interpolada em ln(p) entre os dois níveis do cruzamento (a temperatura varia quase
+    linearmente com a altura, e a altura, com ln(p)).
+
+    Parâmetros:
+        niveis: de baixo para cima (Perfil.niveis).
+
+    Retorna:
+        A pressão; None se não há cruzamento (tudo acima ou tudo abaixo de 0 °C).
+    """
+    for embaixo, em_cima in itertools.pairwise(niveis):
+        if embaixo.temperatura > 0 >= em_cima.temperatura:
+            fracao = embaixo.temperatura / (embaixo.temperatura - em_cima.temperatura)
+            ln_p = math.log(embaixo.hpa) + fracao * (math.log(em_cima.hpa) - math.log(embaixo.hpa))
+            return math.exp(ln_p)
+    return None
+
+
+def texto_isoterma(niveis: tuple[NivelPerfil, ...]) -> str:
+    """A isoterma de 0 °C para a sonda: '~FL145 (590 hPa)', ou por que não há uma."""
+    if not niveis:
+        return 'sem níveis'
+    hpa = isoterma_zero(niveis)
+    if hpa is not None:
+        return f'~FL{vento.fl_da_pressao(round(hpa * 100)):03d} ({hpa:.0f} hPa)'
+    if niveis[0].temperatura <= 0:
+        return f'abaixo do primeiro nível ({niveis[0].hpa} hPa já com {niveis[0].temperatura:.0f} °C)'
+    return 'acima de todos os níveis'
+
+
+# ---------------------------------------------------------------------------
 # Para a tela (textos e escolhas; sem NiceGUI)
 # ---------------------------------------------------------------------------
 
@@ -514,7 +699,7 @@ def url_imagem(rodada: Rodada, campo: Campo, horario: datetime, fl: int) -> str:
 
 
 def buscar_imagem(nome_rodada: str, chave: str, horario: str, nivel_hpa: int = 0,
-                  pasta: Path = config.MODELO_DIR) -> tuple[int, bytes, str]:
+                  pasta: Path | None = None) -> tuple[int, bytes, str]:
     """Responde ao pedido de imagem do navegador (rota /modelo/imagem).
 
     Parâmetros:
@@ -522,7 +707,7 @@ def buscar_imagem(nome_rodada: str, chave: str, horario: str, nivel_hpa: int = 0
         chave: chave do campo (POR_CHAVE).
         horario: horário previsto, AAAAMMDDHH (UTC).
         nivel_hpa: nível de pressão, para os campos por nível.
-        pasta: a pasta dos arquivos.
+        pasta: a pasta dos arquivos (None = config.MODELO_DIR).
 
     Retorna:
         (status HTTP, conteúdo, tipo): 200 com o PNG; 400 pedido malformado; 404 rodada, campo,

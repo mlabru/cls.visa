@@ -233,7 +233,19 @@ def valor_no_ponto(registros: list[dict], lat: float, lon: float) -> tuple[int, 
     componentes = uv_no_ponto(registros, lat, lon)
     if componentes is None:
         return None
-    vento_u, vento_v = componentes
+    return direcao_velocidade(*componentes)
+
+
+def direcao_velocidade(vento_u: float, vento_v: float) -> tuple[int, int]:
+    """Componentes do vento como se diz na aviação (também usado pelo perfil do modelo WRF).
+
+    Parâmetros:
+        vento_u: componente para leste, m/s.
+        vento_v: componente para norte, m/s.
+
+    Retorna:
+        (direção de onde vem, em graus, de 1 a 360; velocidade em kt).
+    """
     direcao = round((270 - math.degrees(math.atan2(vento_v, vento_u))) % 360)
     if direcao == 0:
         direcao = 360

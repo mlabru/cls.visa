@@ -15,6 +15,7 @@ from nicegui import background_tasks, ui
 import aeronaves
 import camadas
 import impacto
+import modelo
 import previsao
 import radar
 import redemet
@@ -111,13 +112,14 @@ class PainelSonda:
             gaveta: a gaveta da direita.
             area: a área do mapa (o mapa e o contêiner que recebe o cursor em cruz).
             prefs: preferências do usuário.
-            camadas_: as camadas da página (a sonda usa a de tempo severo).
+            camadas_: as camadas da página (a sonda usa a de tempo severo e a do modelo).
         """
         self.gaveta = gaveta
         self.area = area
         self.mapa = area.mapa
         self.prefs = prefs
         self.severo = camadas_.severo
+        self.modelo = camadas_.modelo
         self.ligada = False
         self.marca = None
         self._pedido = 0             # o último clique vence (ver DECISOES.md, 5.4)
@@ -185,10 +187,13 @@ class PainelSonda:
         self._mostrar_carregando(lat, lon)
         camada_severo = self.severo
         com_severo = self.prefs['severo_ligado'] and camada_severo.feicoes
+        camada_modelo = self.modelo
+        com_modelo = self.prefs['modelo_ligado']      # ligada: o perfil do horário que está no mapa
         resultado = await sonda.sondar(
             lat, lon, self.prefs['radar_produto_api'],
             camada_severo.feicoes if com_severo else None, camada_severo.tipo,
-            self.prefs['severo_estilo']['raio_km'], camada_severo.escolha['validade'])
+            self.prefs['severo_estilo']['raio_km'], camada_severo.escolha['validade'],
+            camada_modelo.rodada if com_modelo else None, camada_modelo.horario if com_modelo else None)
         if pedido == self._pedido:       # a pessoa não clicou em outro ponto nesse meio-tempo
             self._desenhar(resultado)
 
@@ -234,6 +239,7 @@ class PainelSonda:
             self._raios(resultado)
             self._severo(resultado)
             self._vento(resultado)
+            self._modelo(resultado)
             self._aerodromo(resultado)
             ui.label('WIFS no ponto (turbulência, gelo) depende da VPN: ainda não disponível.') \
                 .classes('legenda-texto q-mt-md')
@@ -333,6 +339,45 @@ class PainelSonda:
                     ui.label(f'{direcao:03d}°').classes('legenda-texto')
                 classes_velocidade = 'legenda-texto text-weight-bold' if velocidade_kt >= 50 else 'legenda-texto'
                 ui.label(f'{velocidade_kt} kt').classes(classes_velocidade)
+
+    @staticmethod
+    def _modelo(resultado: sonda.Resultado) -> None:
+        """Seção Perfil previsto (WRF): rodada e horário, isoterma de 0 °C, superfície e os níveis."""
+        secao('Perfil previsto (WRF)', 'model_training')
+        perfil = resultado.perfil
+        if perfil is None:
+            ui.label(resultado.perfil_erro or 'sem perfil').classes('legenda-texto')
+            return
+        ui.label(f'rodada {perfil.rodada.inicio:%d/%m %H}Z · '
+                 f'{modelo.rotulo_horario(perfil.horario, perfil.rodada.inicio)} · '
+                 f'grade de {perfil.resolucao_km:.0f} km').classes('legenda-texto')
+        ui.label(f'Isoterma de 0 °C: {modelo.texto_isoterma(perfil.niveis)}').classes('text-body2')
+        ui.label(PainelSonda._texto_superficie(perfil)).classes('legenda-texto')
+        with ui.grid(columns=4).classes('w-full gap-x-2 gap-y-0 sonda-vento'):
+            for titulo in ('nível', 'T / Td °C', 'UR', 'vento'):
+                ui.label(titulo).classes('legenda-texto text-grey-6')
+            for nivel in reversed(perfil.niveis):          # de cima para baixo, como o vento
+                ui.label(f'FL{nivel.fl:03d}').classes('legenda-texto').tooltip(f'{nivel.hpa} hPa')
+                orvalho = '—' if nivel.orvalho is None else f'{nivel.orvalho:.0f}'
+                ui.label(f'{nivel.temperatura:.0f} / {orvalho}').classes('legenda-texto')
+                ui.label('—' if nivel.umidade is None else f'{nivel.umidade:.0f}%').classes('legenda-texto')
+                if nivel.direcao is None:
+                    ui.label('—').classes('legenda-texto')
+                else:
+                    ui.label(f'{nivel.direcao:03d}°/{nivel.velocidade_kt} kt').classes('legenda-texto')
+        ui.label('previsão do modelo, não observação').classes('legenda-texto')
+
+    @staticmethod
+    def _texto_superficie(perfil: modelo.Perfil) -> str:
+        """CAPE, refletividade simulada e chuva da última hora no ponto, numa linha."""
+        partes = []
+        if perfil.cape is not None:
+            partes.append(f'CAPE {perfil.cape:.0f} J/kg')
+        if perfil.refletividade is not None:
+            partes.append(f'refletividade simulada {perfil.refletividade:.0f} dBZ')
+        if perfil.chuva_1h is not None:
+            partes.append(f'chuva {perfil.chuva_1h:.1f} mm na última hora'.replace('.', ','))
+        return ' · '.join(partes) or 'sem valores de superfície'
 
     @staticmethod
     def _aerodromo(resultado: sonda.Resultado) -> None:

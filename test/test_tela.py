@@ -14,9 +14,9 @@ from nicegui import ui
 from nicegui.testing import User, user_simulation
 
 import aerodromos
+import config
 import impacto
 import interface
-import modelo
 import modos
 import preferencias
 import previsao
@@ -26,7 +26,6 @@ import rotas
 import severo
 
 AGORA = datetime.now(UTC)
-_listar = modelo.listar_rodadas     # o original, antes de os testes o trocarem
 pytestmark = pytest.mark.anyio          # testes assíncronos pelo plugin do anyio (vem com o NiceGUI)
 
 
@@ -36,12 +35,13 @@ def anyio_backend():
 
 
 @pytest.fixture
-def sem_rede(monkeypatch):
+def sem_rede(monkeypatch, tmp_path):
     """Toda consulta HTTP dos módulos recebe 503 (como se as fontes estivessem fora do ar)."""
     transporte = httpx.MockTransport(lambda pedido: httpx.Response(503, text='fora (teste)'))
     for modulo in (aerodromos, radar, redemet, rotas, severo):
         monkeypatch.setattr(modulo, '_cliente', httpx.AsyncClient(transport=transporte))
     monkeypatch.setattr(redemet, '_cache_api', {})
+    monkeypatch.setattr(config, 'MODELO_DIR', tmp_path / 'sem_modelo')   # nem os arquivos reais do WRF
 
 
 @pytest.fixture
@@ -165,7 +165,7 @@ async def test_animacao_sem_rede_avisa_e_nao_quebra(user: User):
 # --- modelo WRF --------------------------------------------------------------------
 
 async def test_modelo_ligado_mostra_rodada_e_anda_no_horario(user: User, prefs, rodada, monkeypatch):
-    monkeypatch.setattr(modelo, 'listar_rodadas', lambda pasta=rodada: _listar(pasta))
+    monkeypatch.setattr(config, 'MODELO_DIR', rodada)
     prefs['modelo_ligado'] = True
     await abrir(user)
     await user.should_see('rodada 23/11 00Z · previsão do modelo, não observação', retries=20)
@@ -175,8 +175,19 @@ async def test_modelo_ligado_mostra_rodada_e_anda_no_horario(user: User, prefs, 
     await user.should_see('23/11 01Z (+1 h)', retries=20)
 
 
-async def test_modelo_sem_rodada_avisa(user: User, prefs, tmp_path, monkeypatch):
-    monkeypatch.setattr(modelo, 'listar_rodadas', lambda pasta=tmp_path: _listar(pasta))
+async def test_modelo_sem_rodada_avisa(user: User, prefs):
     prefs['modelo_ligado'] = True
     await abrir(user)
     await user.should_see('Nenhuma rodada em', retries=20)
+
+
+async def test_sonda_mostra_o_perfil_do_modelo(user: User, rodada, monkeypatch):
+    monkeypatch.setattr(config, 'MODELO_DIR', rodada)
+    item = impacto.Impacto('aerodromo', 'SBXX', 'Teste', -25.0, -45.0, impacto.ALTO, ('teste',), 50)
+    _com_impacto(aerodromos=[item])
+    await abrir(user)
+    user.find(marker='botao-fabia').click()
+    user.find(marker='impacto-SBXX').click()
+    await user.should_see('Perfil previsto (WRF)', retries=20)
+    await user.should_see('Isoterma de 0 °C: abaixo do primeiro nível (1000 hPa já com -20 °C)')
+    await user.should_see('270°/19 kt')

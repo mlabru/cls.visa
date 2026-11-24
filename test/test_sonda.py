@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 import numpy as np
 
+import config
 import radar
 import redemet
 import sonda
@@ -40,3 +41,20 @@ def test_area_severa():
 
 def test_titulo():
     assert sonda.Resultado(-23.4321, -46.4699).titulo == '23,43°S 46,47°O'
+
+
+def test_perfil_do_modelo_na_sonda(rodada, monkeypatch, tmp_path):
+    monkeypatch.setattr(config, 'MODELO_DIR', rodada)
+    resultado = sonda.Resultado(-25, -45)
+    sonda._modelo(resultado, None, None)                  # a rodada mais recente, perto de agora
+    assert resultado.perfil is not None and resultado.perfil_erro == ''
+    assert resultado.perfil.horario == datetime(2026, 11, 23, 2, tzinfo=UTC)   # o último (a rodada já passou)
+
+    longe = sonda.Resultado(0, 0)
+    sonda._modelo(longe, None, None)
+    assert longe.perfil is None and longe.perfil_erro == 'fora da área do modelo'
+
+    monkeypatch.setattr(config, 'MODELO_DIR', tmp_path / 'vazia')
+    sem = sonda.Resultado(-25, -45)
+    sonda._modelo(sem, None, None)
+    assert sem.perfil_erro == 'nenhuma rodada do modelo na pasta'
