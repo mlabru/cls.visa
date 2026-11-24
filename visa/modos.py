@@ -47,18 +47,18 @@ MODOS = [
     Modo('conveccao', 'Convecção', 'thunderstorm',
          'Onde há convecção agora e o que ela atinge: satélite, radar, raios, tempo severo e TMAs',
          {'satelite_ligado': True, 'radar_ligado': True, 'raios_ligado': True, 'severo_ligado': True,
-          'vento_ligado': False, 'aeronaves_ligado': True, 'aerodromos_ligado': True},
+          'vento_ligado': False, 'modelo_ligado': False, 'aeronaves_ligado': True, 'aerodromos_ligado': True},
          espaco=frozenset({'tma'})),
     Modo('altitude', 'Altitude', 'flight',
          'O que acontece em rota: vento, turbulência e gelo no nível de voo, com as aerovias altas',
          {'satelite_ligado': False, 'radar_ligado': False, 'raios_ligado': False, 'severo_ligado': False,
-          'vento_ligado': True, 'aeronaves_ligado': True, 'aerodromos_ligado': False},
+          'vento_ligado': True, 'modelo_ligado': False, 'aeronaves_ligado': True, 'aerodromos_ligado': False},
          wifs=frozenset({'turbulencia', 'gelo_severo'}), espaco=frozenset({'aerovias_altas'}),
          extras={'vento_fl': 340, 'wifs_fl': 340}),   # vento e WIFS no mesmo nível
     Modo('terminal', 'Terminal', 'location_city',
          'Uma área terminal de perto: radar, raios, aeródromos e setores da TMA',
          {'satelite_ligado': False, 'radar_ligado': True, 'raios_ligado': True, 'severo_ligado': False,
-          'vento_ligado': False, 'aeronaves_ligado': True, 'aerodromos_ligado': True},
+          'vento_ligado': False, 'modelo_ligado': False, 'aeronaves_ligado': True, 'aerodromos_ligado': True},
          espaco=frozenset({'tma', 'setores_tma'}), zoom_terminal=True),
 ]
 POR_CHAVE = {modo.chave: modo for modo in MODOS}

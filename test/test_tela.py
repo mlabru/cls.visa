@@ -16,6 +16,7 @@ from nicegui.testing import User, user_simulation
 import aerodromos
 import impacto
 import interface
+import modelo
 import modos
 import preferencias
 import previsao
@@ -25,6 +26,7 @@ import rotas
 import severo
 
 AGORA = datetime.now(UTC)
+_listar = modelo.listar_rodadas     # o original, antes de os testes o trocarem
 pytestmark = pytest.mark.anyio          # testes assíncronos pelo plugin do anyio (vem com o NiceGUI)
 
 
@@ -158,3 +160,23 @@ async def test_animacao_sem_rede_avisa_e_nao_quebra(user: User):
     await abrir(user)
     user.find(marker='animacao-tocar').click()
     await user.should_see('API da REDEMET indisponível', retries=20)
+
+
+# --- modelo WRF --------------------------------------------------------------------
+
+async def test_modelo_ligado_mostra_rodada_e_anda_no_horario(user: User, prefs, rodada, monkeypatch):
+    monkeypatch.setattr(modelo, 'listar_rodadas', lambda pasta=rodada: _listar(pasta))
+    prefs['modelo_ligado'] = True
+    await abrir(user)
+    await user.should_see('rodada 23/11 00Z · previsão do modelo, não observação', retries=20)
+    await user.should_see('WRF · Refletividade máxima simulada')
+    await user.should_see('23/11 02Z (+2 h)')            # hoje é depois da rodada de teste: o último horário
+    user.find(marker='modelo-antes').click()
+    await user.should_see('23/11 01Z (+1 h)', retries=20)
+
+
+async def test_modelo_sem_rodada_avisa(user: User, prefs, tmp_path, monkeypatch):
+    monkeypatch.setattr(modelo, 'listar_rodadas', lambda pasta=tmp_path: _listar(pasta))
+    prefs['modelo_ligado'] = True
+    await abrir(user)
+    await user.should_see('Nenhuma rodada em', retries=20)

@@ -78,3 +78,25 @@ def test_satelite():
 def test_severo_com_rodada_ilegivel_nao_derruba_a_barra():
     ind = saude.severo('ontem de manhã', None, agora=AGORA)
     assert ind.nivel == saude.ATENCAO and 'ilegível' in ind.detalhe
+
+
+def test_modelo():
+    inicio = AGORA - timedelta(hours=15)
+    ultimo = inicio + timedelta(hours=60)
+    indicador = saude.modelo(inicio, ultimo, AGORA, agora=AGORA)
+    assert (indicador.texto, indicador.nivel) == ('00Z', saude.OK)
+    assert '(+15 h)' in indicador.detalhe
+    assert saude.modelo(AGORA - timedelta(hours=50), AGORA + timedelta(hours=10), None, agora=AGORA).nivel \
+        == saude.ATENCAO                                  # faltou uma rodada
+    vencido = saude.modelo(AGORA - timedelta(hours=70), AGORA - timedelta(hours=10), None, agora=AGORA)
+    assert (vencido.texto, vencido.nivel) == ('vencido', saude.CRITICO)
+    assert saude.modelo(None, None, None).texto == 'sem rodada'
+    assert saude.modelo(inicio, ultimo, None, erro='ilegível', agora=AGORA).nivel == saude.CRITICO
+
+
+def test_modos_desligam_o_modelo():
+    prefs = copy.deepcopy(PADRAO)
+    prefs['modelo_ligado'] = True
+    assert modos.ativo(prefs) is None                 # modelo ligado à mão: personalizado
+    modos.aplicar(modos.POR_CHAVE['conveccao'], prefs)
+    assert not prefs['modelo_ligado'] and modos.ativo(prefs) == 'conveccao'

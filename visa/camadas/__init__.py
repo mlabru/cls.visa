@@ -9,7 +9,7 @@ Não monta painel nenhum: o pacote `tela/` (painel_camadas.py) cria os controles
 Arquivos:
   observacao.py     radar, satélite, raios
   animacao_mapa.py  a animação dessas três no mapa
-  prevista.py       tempo severo, WIFS, vento
+  prevista.py       tempo severo, WIFS, vento, modelo WRF
   contexto.py       tráfego, conflitos (FAB.ia), rotas, espaço aéreo, aeródromos
   ajudantes.py      opacidades, UltimoPedido, escrever (comuns a várias camadas)
   __init__.py       CamadasDaPagina: todas as camadas de uma página e os seus relógios
@@ -35,7 +35,7 @@ import wifs
 from .animacao_mapa import CamadaAnimacao
 from .contexto import CamadaAerodromos, CamadaAeronaves, CamadaConflitos, CamadaRotas, CamadasEspaco
 from .observacao import CamadaRadar, CamadaRaios, CamadaSatelite
-from .prevista import CamadaSevero, CamadasWifs, CamadaVento
+from .prevista import CamadaModelo, CamadaSevero, CamadasWifs, CamadaVento
 
 # ---------------------------------------------------------------------------
 # Todas as camadas de uma página
@@ -53,6 +53,7 @@ class CamadasDaPagina:
         self.satelite = CamadaSatelite(mapa, prefs)
         self.radar = CamadaRadar(mapa, prefs)
         self.vento = CamadaVento(mapa, prefs)
+        self.modelo = CamadaModelo(mapa, prefs)
         self.espaco = CamadasEspaco(mapa, prefs)
         self.aerodromos = CamadaAerodromos(mapa, prefs)
         self.aeronaves = CamadaAeronaves(mapa, prefs)
@@ -73,6 +74,7 @@ class CamadasDaPagina:
         ui.timer(0, self.satelite.aplicar, once=True)
         self.radar.aplicar()
         self.vento.aplicar()
+        ui.timer(0, self.modelo.aplicar, once=True)
         self.raios.aplicar()
         for camada in wifs.CAMADAS:
             self.wifs.aplicar(camada.chave)
@@ -93,5 +95,6 @@ class CamadasDaPagina:
         ui.timer(config.SATELITE_ATUALIZA_S, self.satelite.atualizar)
         ui.timer(severo.CATALOGO_CACHE_S, lambda: self.severo.carregar_catalogo(forcar=True))
         ui.timer(vento.IDADE_ATUALIZA_S, self.vento.mostrar_idade)
+        ui.timer(config.MODELO_PROCURA_S, self.modelo.verificar)
         ui.timer(config.AERODROMOS_ATUALIZA_S, self.aerodromos.enviar)
         ui.timer(animacao.INTERVALO_S, self.animacao.tique)

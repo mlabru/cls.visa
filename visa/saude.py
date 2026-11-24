@@ -264,6 +264,35 @@ def vento(referencia: datetime | None, fl: int, agora: datetime | None = None) -
                      f'FL{fl:03d} · referência {referencia:%d/%m %H:%MZ} ({idade_curta(idade_s)})')
 
 
+
+def modelo(inicio: datetime | None, ultimo: datetime | None, mostrado: datetime | None, erro: str = '',
+           agora: datetime | None = None) -> Indicador:
+    """A rodada do modelo WRF: a idade conta do início da rodada (como o tempo severo).
+
+    Parâmetros:
+        inicio: início da rodada (None = não há rodada na pasta).
+        ultimo: o último horário previsto da rodada.
+        mostrado: o horário previsto que está no mapa (None = nenhum).
+        erro: falha da última leitura ('' = nenhuma).
+        agora: o momento de referência (None = agora, UTC).
+
+    Retorna:
+        O indicador; CRITICO também quando a previsão inteira já passou.
+    """
+    if erro:
+        return Indicador('WRF', 'erro', CRITICO, erro)
+    if inicio is None:
+        return Indicador('WRF', 'sem rodada', CRITICO, 'Nenhum arquivo do modelo na pasta')
+    agora = agora or datetime.now(UTC)
+    detalhe = f'Rodada {inicio:%d/%m %H}Z'
+    if mostrado:
+        detalhe += f' · no mapa: {mostrado:%d/%m %H}Z (+{round((mostrado - inicio).total_seconds() / 3600)} h)'
+    if ultimo is not None and ultimo < agora:
+        return Indicador('WRF', 'vencido', CRITICO, f'{detalhe} · a previsão acabou em {ultimo:%d/%m %H}Z')
+    idade_s = _idade_s(inicio, agora)
+    prazos = _Prazos(config.MODELO_IDADE_ALERTA_H * 3600, config.MODELO_IDADE_VELHO_H * 3600)
+    return Indicador('WRF', f'{inicio:%H}Z', _nivel(idade_s, prazos), f'{detalhe} ({idade_curta(idade_s)})')
+
 def trafego(conectado: bool, recebido_em: datetime | None, situacao: str,
             agora: datetime | None = None) -> Indicador:
     """Situação da fonte de tráfego do DECEA.

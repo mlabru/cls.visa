@@ -66,6 +66,23 @@ def imagem_legenda(url: str) -> None:
     ui.element('img').props(f'src="{url}" alt=""').style('max-width: 100%; display: block')
 
 
+def barra_cores(paleta: tuple[tuple[float, str], ...], unidade: str) -> None:
+    """Escala de cores de uma paleta (limite inferior de cada faixa, cor), com os limites embaixo.
+
+    Parâmetros:
+        paleta: (limite, cor) em ordem crescente, como em modelo.Campo.
+        unidade: vai depois do último número.
+    """
+    with ui.row().classes('w-full no-wrap gap-0'):
+        for posicao, (limite, cor) in enumerate(paleta):
+            rotulo = f'{limite:g}' if posicao % 2 == 0 else ''     # um número sim, outro não: cabe
+            if posicao == len(paleta) - 1:
+                rotulo = f'{limite:g} {unidade}'
+            with ui.column().classes('col items-center gap-0'):
+                ui.element('div').style(f'background:{cor}; height:8px; width:100%')
+                ui.label(rotulo).classes('legenda-texto').style('font-size:9px; white-space:nowrap')
+
+
 def barra_dbz(dbz_min: int) -> None:
     """Escala de cores do radar; as cores abaixo do limiar ficam apagadas (o filtro as esconde)."""
     with ui.row().classes('w-full no-wrap gap-0'):

@@ -1,78 +1,13 @@
 import io
 from datetime import UTC, datetime
 
-import netCDF4
 import numpy as np
 import pytest
 from PIL import Image
 
 import config
-import geo
 import modelo
-
-HORA_INICIAL = 17758656            # 23/11/2026 00Z em "hours since 1-1-1", calendário misto (o do arquivo real)
-INICIO = datetime(2026, 11, 23, tzinfo=UTC)
-NIVEIS = [1000, 850, 500, 250]
-
-
-def _lats_mercator(sul, norte, n):
-    """Centros de n linhas igualmente espaçadas em y de Mercator."""
-    ys = np.linspace(geo.mercator_y(sul), geo.mercator_y(norte), n)
-    return np.array([geo.lat_de_mercator(y) for y in ys])
-
-
-def _escrever(caminho, lats, lons, horas=3, preencher=None):
-    """Um netCDF com a estrutura dos arquivos do WRF (como o CDO os grava).
-
-    `preencher(nome, passo, nivel, lats, lons)` dá o valor de cada campo; padrão: o passo.
-    """
-    preencher = preencher or (lambda nome, passo, nivel, la, lo: np.full((len(la), len(lo)), float(passo)))
-    with netCDF4.Dataset(caminho, 'w', format='NETCDF3_64BIT_OFFSET') as arquivo:
-        arquivo.createDimension('time', None)
-        arquivo.createDimension('lon', len(lons))
-        arquivo.createDimension('lat', len(lats))
-        arquivo.createDimension('lev', len(NIVEIS))
-        arquivo.createDimension('lev_2', 1)
-        tempo = arquivo.createVariable('time', 'f8', ('time',))
-        tempo.units = 'hours since 1-1-1 00:00:00'
-        tempo.calendar = 'standard'
-        tempo[:] = HORA_INICIAL + np.arange(horas)
-        arquivo.createVariable('lon', 'f8', ('lon',))[:] = lons
-        arquivo.createVariable('lat', 'f8', ('lat',))[:] = lats
-        arquivo.createVariable('lev', 'f8', ('lev',))[:] = NIVEIS
-        for nome, nivel_dim in [('max_dbz', 'lev_2'), ('rainc', 'lev_2'), ('rainnc', 'lev_2'),
-                                ('wspd', 'lev'), ('tc', 'lev')]:
-            var = arquivo.createVariable(nome, 'f4', ('time', nivel_dim, 'lat', 'lon'), fill_value=1e30)
-            for passo in range(horas):
-                for nivel in range(len(NIVEIS) if nivel_dim == 'lev' else 1):
-                    var[passo, nivel] = preencher(nome, passo, nivel, lats, lons)
-
-
-@pytest.fixture
-def rodada(tmp_path):
-    """d1 de 30°S–20°S, 50°W–40°W (longitudes 0..360, como no arquivo real) e d2 no meio dele."""
-    def preencher(nome, passo, nivel, la, lo):
-        if nome == 'max_dbz':
-            return np.full((len(la), len(lo)), 10.0 + passo)           # d1: 10, 11, 12 dBZ
-        if nome in ('rainc', 'rainnc'):
-            return np.full((len(la), len(lo)), 2.0 * passo)            # acumula 4 mm/h no total
-        if nome == 'tc':
-            valores = np.full((len(la), len(lo)), -20.0)
-            if nivel == 0:
-                valores[0, :] = 1e30                                    # abaixo do terreno
-            return valores
-        return np.full((len(la), len(lo)), 10.0)                        # wspd 10 m/s
-    _escrever(tmp_path / 'wrfd1_2026112300.nc', _lats_mercator(-30, -20, 40), np.arange(310, 320, 0.5) + 0.25,
-              preencher=preencher)
-
-    def preencher_d2(nome, passo, nivel, la, lo):
-        valores = preencher(nome, passo, nivel, la, lo)
-        return valores + 40 if nome == 'max_dbz' else valores           # d2: 50, 51, 52 dBZ
-    _escrever(tmp_path / 'wrfd2_2026112300.nc', _lats_mercator(-26, -24, 30), np.arange(314, 316, 0.1) + 0.05,
-              preencher=preencher_d2)
-    (tmp_path / 'wrfd1_2026112212.nc').touch()
-    (tmp_path / 'outro.nc').touch()
-    return tmp_path
+from netcdf_teste import INICIO, NIVEIS, lats_mercator
 
 
 def test_lista_rodadas_agrupa_dominios(rodada):
@@ -101,7 +36,7 @@ def test_recusa_grade_fora_de_mercator():
 
 
 def test_grade_indice():
-    grade = modelo.grade_das_coordenadas(_lats_mercator(-30, -20, 11), np.arange(-50, -39.5, 1.0))
+    grade = modelo.grade_das_coordenadas(lats_mercator(-30, -20, 11), np.arange(-50, -39.5, 1.0))
     assert grade.indice(-20, -50) == (0, 0)          # canto noroeste: linha 0 é o norte
     assert grade.indice(-30, -40) == (10, 10)
     assert grade.indice(-10, -45) is None
@@ -166,3 +101,24 @@ def test_arquivos_reais_estao_em_mercator():
     for caminho in rodadas[0].arquivos:
         info = modelo.cabecalho(caminho)
         assert info.horarios[0] == rodadas[0].inicio, caminho.name
+
+
+def test_textos_e_escolhas_para_a_tela(rodada):
+    rodada_ = modelo.listar_rodadas(rodada)[0]
+    horarios = modelo.horarios_da_rodada(rodada_)
+    assert modelo.horario_mais_proximo(horarios, datetime(2026, 11, 23, 1, 20, tzinfo=UTC)) == horarios[1]
+    assert modelo.horario_mais_proximo(horarios, datetime(2027, 1, 1, tzinfo=UTC)) == horarios[-1]
+    assert modelo.horario_mais_proximo((), INICIO) is None
+    assert modelo.rotulo_horario(datetime(2026, 11, 24, 18, tzinfo=UTC), INICIO) == '24/11 18Z (+42 h)'
+    assert modelo.nivel_do_fl(340) == 250
+    assert modelo.url_imagem(rodada_, modelo.POR_CHAVE['vento'], horarios[1], 340) == \
+        '/modelo/imagem?r=2026112300&c=vento&h=2026112301&n=250'
+    assert modelo.url_imagem(rodada_, modelo.POR_CHAVE['cape'], horarios[1], 340).endswith('h=2026112301')
+
+
+def test_paletas_crescentes_e_cores_validas():
+    for campo in modelo.CAMPOS:
+        limites = [limite for limite, _ in campo.paleta]
+        assert limites == sorted(set(limites)), campo.chave
+        assert all(len(cor) == 7 and cor[0] == '#' for _, cor in campo.paleta), campo.chave
+        assert len(campo.paleta) < 255, campo.chave          # índice 0 é o transparente, um byte por pixel

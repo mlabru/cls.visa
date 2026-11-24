@@ -14,13 +14,14 @@ from nicegui import ui
 
 import aerodromos
 import camadas
+import modelo
 import radar
 import raios
 import redemet
 import severo
 import wifs
 from tela.mapa import AreaDoMapa
-from tela.pecas import barra_dbz, bolinhas, imagem_legenda
+from tela.pecas import barra_cores, barra_dbz, bolinhas, imagem_legenda
 
 # Como ler cada imagem de satélite
 LEITURA_SATELITE = {
@@ -95,7 +96,9 @@ class Legenda:
                 prefs['raios_classificacao'], prefs['severo_ligado'],
                 escolha['origem'], escolha['tipo'], escolha['validade'],
                 prefs['severo_estilo']['cor'], tuple(prefs['wifs'].items()), prefs['wifs_fl'],
-                prefs['vento_ligado'], prefs['vento_fl'], prefs['aerodromos_ligado'])
+                prefs['vento_ligado'], prefs['vento_fl'], prefs['aerodromos_ligado'],
+                prefs['modelo_ligado'], prefs['modelo_campo'], prefs['modelo_fl'],
+                self.camadas.modelo.horario, self.camadas.modelo.rodada)
 
     def desenhar(self) -> None:
         """Redesenha a legenda (só se a assinatura mudou): título, botão de abrir/recolher e as partes."""
@@ -114,7 +117,7 @@ class Legenda:
                 return
             # Cada função desenha a sua parte e diz se desenhou algo
             partes = [self._satelite(), self._radar(), self._raios(), self._severo(), self._wifs(),
-                      self._vento(), self._aerodromos()]
+                      self._vento(), self._modelo(), self._aerodromos()]
             if not any(partes):
                 ui.label('Nenhuma camada meteorológica ligada').classes('legenda-texto')
 
@@ -204,6 +207,24 @@ class Legenda:
         if not prefs['vento_ligado']:
             return False
         _item('Vento', f"FL{prefs['vento_fl']:03d} · partículas, valor sob o cursor")
+        return True
+
+    def _modelo(self) -> bool:
+        """Modelo WRF: o campo, o nível, o horário previsto (com a antecedência) e a escala de cores."""
+        prefs = self.prefs
+        camada = self.camadas.modelo
+        if not prefs['modelo_ligado']:
+            return False
+        campo = camada.campo()
+        partes = []
+        if campo.por_nivel:
+            partes.append(f"FL{prefs['modelo_fl']:03d}")
+        if camada.rodada and camada.horario:
+            partes.append(modelo.rotulo_horario(camada.horario, camada.rodada.inicio))
+        _item(f'WRF · {campo.titulo}', ' · '.join(partes))
+        barra_cores(campo.paleta, campo.unidade)
+        if campo.chave == 'refletividade':
+            ui.label('simulada pelo modelo: não é o radar').classes('legenda-texto')
         return True
 
     def _aerodromos(self) -> bool:

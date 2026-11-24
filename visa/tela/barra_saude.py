@@ -67,6 +67,7 @@ class BarraSaude:
             self._severo(agora),
             self._wifs(),
             self._vento(agora),
+            self._modelo(agora),
             self._trafego(agora),
             self._aerodromos(),
             self._airac(agora),
@@ -137,6 +138,15 @@ class BarraSaude:
         if not self.prefs['vento_ligado']:
             return None
         return saude.vento(self.camadas.vento.referencia, self.prefs['vento_fl'], agora)
+
+    def _modelo(self, agora: datetime) -> saude.Indicador | None:
+        """Idade da rodada do modelo WRF e o horário previsto no mapa."""
+        if not self.prefs['modelo_ligado']:
+            return None
+        camada = self.camadas.modelo
+        inicio = camada.rodada.inicio if camada.rodada else None
+        ultimo = camada.horarios[-1] if camada.horarios else None
+        return saude.modelo(inicio, ultimo, camada.horario, camada.erro, agora)
 
     def _trafego(self, agora: datetime) -> saude.Indicador | None:
         """Conexão com o tráfego aéreo (Pusher) e idade da última mensagem."""

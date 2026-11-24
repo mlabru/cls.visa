@@ -2,16 +2,18 @@
 Centro Logístico de Simulação Meteorológica
 Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
 
-Camadas de previsão: tempo severo, WIFS em altitude e vento.
+Camadas de previsão: tempo severo, WIFS em altitude, vento e o modelo WRF.
 
 Criadas por `CamadasDaPagina` (camadas/__init__.py); os controles ficam em tela/painel_camadas.py.
 """
-from datetime import datetime
+import asyncio
+from datetime import UTC, datetime
 
 from nicegui import ui
 
 import config
 import desenho
+import modelo
 import severo
 import vento
 import wifs
@@ -334,3 +336,165 @@ class CamadaVento:
         escrever(self.rotulo_aviso, f'FL{nivel:03d} / {pressao_pa // 100} hPa · '
                                     f'ref. {self.referencia:%d/%m/%Y %H:%MZ} · {texto}', f'text-{cor} text-caption')
         self.rotulo_aviso.set_visibility(True)
+
+
+class CamadaModelo:
+    """Modelo WRF (arquivos netCDF locais): um campo por vez, como imagem, num horário previsto.
+
+    Sempre a rodada mais recente da pasta (procurada de novo a cada config.MODELO_PROCURA_S).
+    O horário não segue a linha do tempo da tela, que anima a observação no passado em passos
+    de 10 min: é previsão, de hora em hora, escolhida no painel. Ao ligar, o mais perto de agora.
+    """
+
+    def __init__(self, mapa: ui.leaflet, prefs: dict) -> None:
+        self.mapa = mapa
+        self.prefs = prefs
+        self.camada = None
+        self.rodada: modelo.Rodada | None = None
+        self.horarios: tuple[datetime, ...] = ()
+        self.horario: datetime | None = None             # o horário previsto no mapa (ou a mostrar)
+        self.erro = ''
+        self.rotulo_info: ui.label | None = None         # preenchidos por tela/painel_camadas.py
+        self.seletor_horario: ui.select | None = None
+        self._pedido = UltimoPedido()
+
+    def campo(self) -> modelo.Campo:
+        """O campo escolhido no painel."""
+        return modelo.POR_CHAVE[self.prefs['modelo_campo']]
+
+    def opcoes_horario(self) -> dict[str, str]:
+        """Os horários previstos da rodada para o seletor: ISO -> '24/11 18Z (+42 h)'."""
+        if self.rodada is None:
+            return {}
+        return {horario.isoformat(): modelo.rotulo_horario(horario, self.rodada.inicio) for horario in self.horarios}
+
+    async def aplicar(self) -> None:
+        """Liga ou desliga; ao ligar, procura a rodada mais recente e desenha o campo escolhido."""
+        if not self.prefs['modelo_ligado']:
+            self._pedido.novo()                          # descarta um desenho ainda a caminho
+            self._tirar()
+            self._informar()
+            return
+        await self._procurar_rodada()
+        await self.desenhar()
+
+    async def verificar(self) -> None:
+        """Relógio: se chegou uma rodada nova na pasta, passa para ela."""
+        if self.prefs['modelo_ligado'] and await self._procurar_rodada():
+            await self.desenhar()
+
+    async def _procurar_rodada(self) -> bool:
+        """Lê a rodada mais recente da pasta e os seus horários (numa thread: lê o disco).
+
+        Retorna:
+            True se a rodada mudou.
+        """
+        try:
+            rodadas = await asyncio.to_thread(modelo.listar_rodadas)
+            nova = rodadas[0] if rodadas else None
+            if nova == self.rodada:
+                return False
+            horarios = await asyncio.to_thread(modelo.horarios_da_rodada, nova) if nova else ()
+            self.erro = ''
+        except modelo.Indisponivel as erro:
+            nova, horarios = None, ()
+            self.erro = str(erro)
+        self.rodada = nova
+        self.horarios = horarios
+        if self.horario not in horarios:
+            self.horario = modelo.horario_mais_proximo(horarios, datetime.now(UTC))
+        if self.seletor_horario:
+            self.seletor_horario.set_options(self.opcoes_horario(),
+                                             value=self.horario.isoformat() if self.horario else None)
+        return True
+
+    async def desenhar(self) -> None:
+        """Prepara a imagem do campo, nível e horário escolhidos (numa thread) e a põe no mapa.
+
+        A imagem é preparada aqui antes de ir para o navegador: assim o erro (nível que o
+        arquivo não tem, variável ausente) aparece no painel, e o navegador já a encontra pronta.
+        """
+        prefs = self.prefs
+        pedido = self._pedido.novo()
+        if not prefs['modelo_ligado'] or self.rodada is None or self.horario is None:
+            self._tirar()
+            self._informar()
+            return
+        campo = self.campo()
+        nivel_hpa = modelo.nivel_do_fl(prefs['modelo_fl']) if campo.por_nivel else None
+        rodada, horario = self.rodada, self.horario
+        try:
+            await asyncio.to_thread(modelo.imagem, rodada, campo, horario, nivel_hpa)
+            limites = modelo.limites_da_rodada(rodada)
+            self.erro = ''
+        except modelo.Indisponivel as erro:
+            if self._pedido.vale(pedido):
+                self.erro = str(erro)
+                self._tirar()
+                self._informar()
+            return
+        if not self._pedido.vale(pedido) or not prefs['modelo_ligado']:
+            return
+        url = modelo.url_imagem(rodada, campo, horario, prefs['modelo_fl'])
+        if self.camada:   # troca a imagem sem tirar a camada (não pisca)
+            self.camada.run_method('setUrl', url)
+            self.camada.run_method('setBounds', limites)
+        else:             # acima do satélite (zIndex 2) e abaixo do radar e dos raios (overlayPane)
+            with self.mapa:
+                self.camada = self.mapa.image_overlay(url=url, bounds=limites, options={
+                    'opacity': prefs['modelo_opacidade'], 'pane': 'tilePane', 'zIndex': 3,
+                    'interactive': False, 'attribution': 'WRF'})
+        self._informar()
+
+    async def escolher_horario(self, valor: str | None) -> None:
+        """O seletor de horário mudou.
+
+        Parâmetros:
+            valor: o horário em ISO (chave de opcoes_horario); None quando o seletor esvazia.
+        """
+        if not valor:
+            return
+        horario = datetime.fromisoformat(valor)
+        if horario != self.horario:
+            self.horario = horario
+            await self.desenhar()
+
+    async def andar(self, passo: int) -> None:
+        """Botões ◀ ▶: o horário previsto anterior ou seguinte.
+
+        Parâmetros:
+            passo: -1 (anterior) ou +1 (seguinte).
+        """
+        if self.horario not in self.horarios:
+            return
+        posicao = self.horarios.index(self.horario) + passo
+        if not 0 <= posicao < len(self.horarios):
+            return
+        horario = self.horarios[posicao]
+        if self.seletor_horario:      # o seletor avisa escolher_horario, que desenha
+            self.seletor_horario.set_value(horario.isoformat())
+        else:
+            await self.escolher_horario(horario.isoformat())
+
+    def mudar_opacidade(self) -> None:
+        """Aplica a opacidade escolhida no painel."""
+        if self.camada:
+            self.camada.run_method('setOpacity', self.prefs['modelo_opacidade'])
+
+    def _tirar(self) -> None:
+        """Tira a imagem do mapa (se houver)."""
+        if self.camada:
+            self.mapa.remove_layer(self.camada)
+            self.camada = None
+
+    def _informar(self) -> None:
+        """Escreve no painel o erro, a falta de rodada ou a rodada mostrada."""
+        if self.erro:
+            texto, cor = self.erro, 'negative'
+        elif not self.prefs['modelo_ligado']:
+            texto, cor = '', 'grey'
+        elif self.rodada is None:
+            texto, cor = f'Nenhuma rodada em {config.MODELO_DIR}', 'warning'
+        else:
+            texto, cor = f'rodada {self.rodada.inicio:%d/%m %H}Z · previsão do modelo, não observação', 'grey'
+        escrever(self.rotulo_info, texto, f'text-caption text-{cor}')

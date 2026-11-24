@@ -22,7 +22,8 @@ O que este módulo garante:
 É previsão, não observação: a refletividade daqui é simulada pelo modelo e tem legenda própria.
 Não alimenta o painel de impacto nem o FAB.ia.
 
-Quem usa: a rota /modelo/imagem (main.py). Não importa o NiceGUI.
+Quem usa: a rota /modelo/imagem (main.py), a camada `CamadaModelo` (camadas/prevista.py), o painel,
+a legenda e a barra de saúde (tela/). Não importa o NiceGUI.
 """
 import io
 import logging
@@ -295,10 +296,14 @@ CAMPOS = [
     Campo('vento', 'Vento', 'kt', 'wspd', True, (
         (20, '#c7e9c0'), (40, '#74c476'), (60, '#31a354'), (80, '#fed976'), (100, '#fd8d3c'),
         (120, '#e31a1c'), (150, '#800026')), fator=KT_POR_MS),
+    # De 5 em 5 °C entre −50 e +30: num mesmo nível a temperatura varia poucos graus (com faixas
+    # de 10 °C, 500 hPa saía numa cor só). Fronteira azul/amarelo em 0 °C; 0 a −20 °C é a faixa do gelo.
     Campo('temperatura', 'Temperatura', '°C', 'tc', True, (
-        (-90, '#3f007d'), (-60, '#54278f'), (-50, '#6a51a3'), (-40, '#2171b5'), (-30, '#4292c6'),
-        (-20, '#6baed6'), (-10, '#9ecae1'), (0, '#fdd0a2'), (10, '#fdae6b'), (20, '#f16913'),
-        (30, '#a63603'))),
+        (-90, '#2d004b'), (-60, '#3f007d'), (-50, '#54278f'), (-45, '#6a51a3'), (-40, '#807dba'),
+        (-35, '#9e9ac8'), (-30, '#08306b'),
+        (-25, '#08519c'), (-20, '#2171b5'), (-15, '#4292c6'), (-10, '#6baed6'), (-5, '#9ecae1'),
+        (0, '#fee391'), (5, '#fec44f'), (10, '#fe9929'), (15, '#ec7014'), (20, '#cc4c02'),
+        (25, '#993404'), (30, '#662506'))),
     Campo('umidade', 'Umidade relativa', '%', 'rh', True, (
         (50, '#d9f0a3'), (60, '#addd8e'), (70, '#78c679'), (80, '#41ab5d'), (90, '#238443'),
         (95, '#005a32'))),
@@ -471,6 +476,41 @@ def imagem(rodada: Rodada, campo: Campo, horario: datetime, nivel_hpa: int | Non
 def limites_da_rodada(rodada: Rodada) -> list[list[float]]:
     """[[sul, oeste], [norte, leste]] da imagem composta (a área do domínio externo)."""
     return cabecalho(rodada.arquivos[0]).grade.limites()
+
+
+def horarios_da_rodada(rodada: Rodada) -> tuple[datetime, ...]:
+    """Os horários previstos da rodada (os do domínio externo)."""
+    return cabecalho(rodada.arquivos[0]).horarios
+
+
+# ---------------------------------------------------------------------------
+# Para a tela (textos e escolhas; sem NiceGUI)
+# ---------------------------------------------------------------------------
+
+def nivel_do_fl(fl: int) -> int:
+    """O nível de pressão (hPa) de um nível de voo do painel (os mesmos do vento: FL340 = 250 hPa)."""
+    return config.VENTO_FL_PARA_PA[fl] // 100
+
+
+def horario_mais_proximo(horarios: tuple[datetime, ...] | list[datetime], agora: datetime) -> datetime | None:
+    """O horário previsto mais perto de `agora` (o primeiro ao abrir a camada); None sem horários."""
+    if not horarios:
+        return None
+    return min(horarios, key=lambda horario: abs((horario - agora).total_seconds()))
+
+
+def rotulo_horario(horario: datetime, inicio: datetime) -> str:
+    """Um horário previsto como texto: '24/11 18Z (+42 h)', a antecedência contada do início da rodada."""
+    horas = round((horario - inicio).total_seconds() / 3600)
+    return f'{horario:%d/%m %H}Z (+{horas} h)'
+
+
+def url_imagem(rodada: Rodada, campo: Campo, horario: datetime, fl: int) -> str:
+    """O endereço da imagem na rota /modelo/imagem (o nível só nos campos por nível)."""
+    url = f'/modelo/imagem?r={rodada.nome}&c={campo.chave}&h={horario:%Y%m%d%H}'
+    if campo.por_nivel:
+        url += f'&n={nivel_do_fl(fl)}'
+    return url
 
 
 def buscar_imagem(nome_rodada: str, chave: str, horario: str, nivel_hpa: int = 0,

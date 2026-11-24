@@ -21,3 +21,8 @@ def test_preferencias_salvas_ganham_chaves_novas_e_mantem_as_escolhas():
     assert prefs['vento_fl'] == PADRAO['vento_fl']              # valor que deixou de existir volta ao padrão
     assert set(prefs) == set(PADRAO)
 
+
+def test_preferencias_do_modelo_invalidas_voltam_ao_padrao():
+    prefs = preferencias.completar({'modelo_campo': 'sumiu', 'modelo_fl': 999, 'modelo_ligado': True})
+    assert prefs['modelo_campo'] == PADRAO['modelo_campo'] and prefs['modelo_fl'] == PADRAO['modelo_fl']
+    assert prefs['modelo_ligado'] is True

@@ -7,7 +7,7 @@ Criado por interface.pagina(), antes das camadas iniciarem (alguns rótulos cria
 aqui são preenchidos pelas camadas: `sat.rotulo_info`, `ve.rotulo_aviso`...).
 
   Observação            Satélite, Radar, Raios
-  Previsão              Tempo severo, WIFS, Vento
+  Previsão              Tempo severo, WIFS, Vento, Modelo WRF
   Contexto aeronáutico  Tráfego, Aeródromos, Espaço aéreo
 
 Cada cartão tem a chave liga/desliga no título e os ajustes dentro.  Os
@@ -20,6 +20,7 @@ from nicegui import ui
 import camadas
 import config
 import espaco
+import modelo
 import radar
 import raios
 import redemet
@@ -80,6 +81,7 @@ class PainelCamadas:
             self._severo()
             self._wifs()
             self._vento()
+            self._modelo()
             grupo('Contexto aeronáutico')
             self._trafego()
             self._aerodromos()
@@ -333,6 +335,33 @@ class PainelCamadas:
                 camada.seletor_horario = ui.select(camada.opcoes_horario(), label='Horário', on_change=camada.aplicar) \
                     .bind_value(prefs, 'vento_horario').props('dense').classes('col')
             camada.rotulo_aviso = ui.label()
+
+    def _modelo(self) -> None:
+        """Cartão Modelo WRF: campo, nível de voo (só nos campos por nível), horário previsto e opacidade."""
+        prefs = self.prefs
+        camada = self.camadas.modelo
+        campos = {campo.chave: campo.titulo for campo in modelo.CAMPOS}
+        niveis = {nivel_voo: f'FL{nivel_voo:03d} · {pa // 100} hPa' for nivel_voo, pa in config.VENTO_FL_PARA_PA.items()}
+        with cartao('Modelo WRF', 'model_training', prefs, 'modelo_ligado', camada.aplicar):
+            ui.select(campos, label='Campo', on_change=camada.desenhar) \
+                .bind_value(prefs, 'modelo_campo').props('dense').classes('w-full')
+            ui.select(niveis, label='Nível', on_change=camada.desenhar) \
+                .bind_value(prefs, 'modelo_fl').props('dense').classes('w-full') \
+                .bind_visibility_from(prefs, 'modelo_campo', backward=lambda chave: modelo.POR_CHAVE[chave].por_nivel)
+            with ui.row().classes('w-full items-center no-wrap'):
+                ui.button(icon='chevron_left', on_click=lambda: camada.andar(-1)) \
+                    .props('flat dense').tooltip('1 h antes').mark('modelo-antes')
+                camada.seletor_horario = ui.select(
+                    camada.opcoes_horario(), label='Horário previsto',
+                    on_change=lambda evento: camada.escolher_horario(evento.value)) \
+                    .props('dense').classes('col')
+                ui.button(icon='chevron_right', on_click=lambda: camada.andar(1)) \
+                    .props('flat dense').tooltip('1 h depois').mark('modelo-depois')
+            with ui.row().classes('w-full items-center no-wrap'):
+                ui.label('Opacidade').classes('text-caption')
+                ui.slider(min=0.2, max=1, step=0.1).bind_value(prefs, 'modelo_opacidade') \
+                    .on('change', camada.mudar_opacidade).classes('col')
+            camada.rotulo_info = ui.label().classes('text-caption text-grey')
 
     # ===== CONTEXTO AERONÁUTICO ====================================================
 

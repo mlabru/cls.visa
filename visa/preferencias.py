@@ -15,6 +15,7 @@ import copy
 import animacao
 import config
 import espaco
+import modelo
 import radar
 import wifs
 
@@ -36,6 +37,10 @@ PADRAO = {
     'vento_ligado': False,
     'vento_fl': 340,
     'vento_horario': 'recente',
+    'modelo_ligado': False,
+    'modelo_campo': 'refletividade',  # chave de modelo.POR_CHAVE
+    'modelo_fl': 340,                # nível de voo dos campos por nível (os mesmos do vento)
+    'modelo_opacidade': 0.7,
     'aeronaves_ligado': True,
     'aeronaves_prefixos': '',
     'aeronaves_fl': {'min': 0, 'max': 600},
@@ -78,4 +83,8 @@ def completar(prefs: dict) -> dict:
                 prefs[chave].setdefault(subchave, copy.deepcopy(subvalor_padrao))
     if prefs['vento_fl'] not in config.VENTO_FL_PARA_PA:
         prefs['vento_fl'] = PADRAO['vento_fl']
+    if prefs['modelo_fl'] not in config.VENTO_FL_PARA_PA:
+        prefs['modelo_fl'] = PADRAO['modelo_fl']
+    if prefs['modelo_campo'] not in modelo.POR_CHAVE:
+        prefs['modelo_campo'] = PADRAO['modelo_campo']
     return prefs
