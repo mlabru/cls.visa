@@ -1,5 +1,6 @@
 import dataclasses
 import io
+import math
 from datetime import UTC, datetime
 
 import numpy as np
@@ -7,6 +8,7 @@ import pytest
 from PIL import Image
 
 import config
+import geo
 import modelo
 from netcdf_teste import INICIO, NIVEIS, lats_mercator
 
@@ -158,3 +160,74 @@ def test_isoterma_zero():
     assert modelo.texto_isoterma((_nivel(850, -2), _nivel(700, -8))).startswith('abaixo do primeiro nível')
     assert modelo.texto_isoterma((_nivel(850, 5), _nivel(700, 1))) == 'acima de todos os níveis'
     assert modelo.texto_isoterma(()) == 'sem níveis'
+
+
+def test_grade_regular_preserva_os_valores():
+    grade = modelo.grade_das_coordenadas(lats_mercator(-30, -20, 50), np.arange(-50, -40, 0.2) + 0.1)
+    linhas = np.repeat(np.arange(grade.ny, dtype=float)[:, None], grade.nx, axis=1)   # valor = linha de origem
+    regular, lat_inicial, lon_inicial = modelo.para_grade_regular(linhas, grade, 0.5)
+    assert regular.shape == (20, 20) and lon_inicial == pytest.approx(-49.75)
+    for linha, lat in enumerate(lat_inicial - np.arange(regular.shape[0]) * 0.5):
+        assert regular[linha, 0] == grade.indice(lat, -49.75)[0]                    # o vizinho certo
+
+
+def test_vento_velocity(rodada):
+    rodada_ = modelo.listar_rodadas(rodada)[0]
+    u, v = modelo.vento_velocity(rodada_, INICIO, 250)
+    cabecalho = u['header']
+    assert (cabecalho['parameterNumber'], v['header']['parameterNumber']) == (2, 3)
+    assert cabecalho['dx'] == cabecalho['dy'] == 0.5                                # o passo do d1 (> 0,25°)
+    assert len(u['data']) == cabecalho['nx'] * cabecalho['ny']
+    assert set(u['data']) == {10.0} and set(v['data']) == {0.0}                   # vento de oeste, m/s
+    assert cabecalho['refTime'] == '2026-11-23T00:00:00Z' and cabecalho['forecastTime'] == 0
+    assert modelo.vento_velocity(rodada_, INICIO, 250)[0] is u                    # do cache
+    with pytest.raises(modelo.Indisponivel, match='nível'):
+        modelo.vento_velocity(rodada_, INICIO, 700)
+
+
+def test_registro_velocity_sem_valor_vira_null():
+    registro = modelo._registro_velocity(np.array([[1.234, np.nan]]), 2, -20, -50, 0.25, INICIO, 3)
+    assert registro['data'] == [1.23, None] and registro['header']['forecastTime'] == 3
+
+
+def test_ellrod_ti1_analitico():
+    # u = α·x + β·z, v = 0: deformação α (estiramento), cisalhamento vertical β; TI1 = α·β
+    alfa, beta, passo_lon, passo_y = 1e-4, 0.01, 0.1, 0.002
+    largura_m = math.radians(passo_lon) * geo.RAIO_TERRA_KM * 1000        # no equador, cos = 1
+    x = np.arange(5) * largura_m
+    z = np.arange(3) * 1000.0
+    u = alfa * x[None, None, :] + beta * z[:, None, None] + np.zeros((3, 4, 5))
+    v = np.zeros_like(u)
+    altura = z[:, None, None] + np.zeros_like(u)
+    ti1 = modelo.ellrod_ti1(u, v, altura, passo_lon, passo_y, np.zeros(4))
+    assert np.allclose(ti1, alfa * beta * 1e7)                               # = 10
+
+
+def test_agua_super_resfriada_e_categoria():
+    temperatura = np.array([5.0, 0.0, -10.0, -25.0, np.nan])
+    assert np.allclose(modelo.agua_super_resfriada(temperatura, np.full(5, 1e-3)),
+                       [np.nan, 1, 1, np.nan, np.nan], equal_nan=True)
+    gelo = modelo.POR_CHAVE['gelo']
+    assert [modelo.categoria(gelo, valor) for valor in (None, 0.01, 0.05, 0.3, 0.9, float('nan'))] == \
+        [None, None, 'leve', 'moderado', 'forte', None]
+    assert modelo.categoria(modelo.POR_CHAVE['vento'], 50) is None            # campo sem rótulos
+
+
+def test_indices_no_mapa(rodada):
+    rodada_ = modelo.listar_rodadas(rodada)[0]
+    turbulencia = modelo.POR_CHAVE['turbulencia']
+    valores, grade = modelo.campo_da_rodada(rodada_, turbulencia, INICIO, 250)
+    assert grade.passo_lon == pytest.approx(0.5)                             # só o d1, sem o d2
+    assert np.allclose(valores, 0)                                           # vento uniforme: sem turbulência
+    with pytest.raises(modelo.Indisponivel, match='FL180'):
+        modelo.campo_da_rodada(rodada_, turbulencia, INICIO, 850)
+    gelo, _ = modelo.campo_da_rodada(rodada_, modelo.POR_CHAVE['gelo'], INICIO, 500)
+    assert np.allclose(gelo, 0.3)                                            # −20 °C com 0,3 g/kg
+
+
+def test_perfil_com_turbulencia_e_gelo(rodada):
+    rodada_ = modelo.listar_rodadas(rodada)[0]
+    niveis = {nivel.hpa: nivel for nivel in modelo.perfil(rodada_, INICIO, -25, -45).niveis}
+    assert niveis[850].turbulencia is None and niveis[1000].turbulencia is None   # abaixo de 500 hPa
+    assert niveis[500].turbulencia == pytest.approx(0) and niveis[250].turbulencia == pytest.approx(0)
+    assert niveis[500].gelo == pytest.approx(0.3)

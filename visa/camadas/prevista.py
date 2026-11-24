@@ -350,6 +350,8 @@ class CamadaModelo:
         self.mapa = mapa
         self.prefs = prefs
         self.camada = None
+        self.particulas = None                           # vento em partículas (leaflet-velocity)
+        self.erro_vento = ''
         self.rodada: modelo.Rodada | None = None
         self.horarios: tuple[datetime, ...] = ()
         self.horario: datetime | None = None             # o horário previsto no mapa (ou a mostrar)
@@ -357,6 +359,7 @@ class CamadaModelo:
         self.rotulo_info: ui.label | None = None         # preenchidos por tela/painel_camadas.py
         self.seletor_horario: ui.select | None = None
         self._pedido = UltimoPedido()
+        self._pedido_vento = UltimoPedido()
 
     def campo(self) -> modelo.Campo:
         """O campo escolhido no painel."""
@@ -372,7 +375,9 @@ class CamadaModelo:
         """Liga ou desliga; ao ligar, procura a rodada mais recente e desenha o campo escolhido."""
         if not self.prefs['modelo_ligado']:
             self._pedido.novo()                          # descarta um desenho ainda a caminho
+            self._pedido_vento.novo()
             self._tirar()
+            self._tirar_particulas()
             self._informar()
             return
         await self._procurar_rodada()
@@ -409,6 +414,11 @@ class CamadaModelo:
         return True
 
     async def desenhar(self) -> None:
+        """Redesenha a imagem do campo e o vento em partículas (horário ou nível mudou)."""
+        await self.desenhar_imagem()
+        await self.desenhar_vento()
+
+    async def desenhar_imagem(self) -> None:
         """Prepara a imagem do campo, nível e horário escolhidos (numa thread) e a põe no mapa.
 
         A imagem é preparada aqui antes de ir para o navegador: assim o erro (nível que o
@@ -444,6 +454,46 @@ class CamadaModelo:
                 self.camada = self.mapa.image_overlay(url=url, bounds=limites, options={
                     'opacity': prefs['modelo_opacidade'], 'pane': 'tilePane', 'zIndex': 3,
                     'interactive': False, 'attribution': 'WRF'})
+        self._informar()
+
+    async def desenhar_vento(self) -> None:
+        """Vento em partículas no nível e horário escolhidos (o d1, numa grade de 0,25°).
+
+        Troca os dados da camada existente (`setData`) em vez de recriá-la: as partículas
+        continuam de onde estavam e o mapa não pisca.
+        """
+        prefs = self.prefs
+        pedido = self._pedido_vento.novo()
+        if not (prefs['modelo_ligado'] and prefs['modelo_vento'] and self.rodada and self.horario):
+            self._tirar_particulas()
+            self.erro_vento = ''
+            self._informar()
+            return
+        try:
+            dados = await asyncio.to_thread(modelo.vento_velocity, self.rodada, self.horario,
+                                            modelo.nivel_do_fl(prefs['modelo_fl']))
+            self.erro_vento = ''
+        except modelo.Indisponivel as erro:
+            if self._pedido_vento.vale(pedido):
+                self.erro_vento = str(erro)
+                self._tirar_particulas()
+                self._informar()
+            return
+        if not self._pedido_vento.vale(pedido) or not prefs['modelo_ligado'] or not prefs['modelo_vento']:
+            return
+        if self.particulas:
+            self.particulas.run_method('setData', dados)
+        else:
+            with self.mapa:
+                self.particulas = self.mapa.generic_layer(name='velocityLayer', args=[{
+                    'data': dados,
+                    'displayValues': True,
+                    'displayOptions': {'velocityType': 'Vento WRF', 'position': 'bottomleft',
+                                       'emptyString': 'Sem dados', 'speedUnit': 'kt',
+                                       'directionString': 'Direção', 'speedString': 'Velocidade'},
+                    'maxVelocity': 100,     # a mesma escala de cores do vento dos arquivos (CamadaVento)
+                    'velocityScale': 0.005,
+                }])
         self._informar()
 
     async def escolher_horario(self, valor: str | None) -> None:
@@ -487,10 +537,16 @@ class CamadaModelo:
             self.mapa.remove_layer(self.camada)
             self.camada = None
 
+    def _tirar_particulas(self) -> None:
+        """Tira o vento em partículas do mapa (se houver)."""
+        if self.particulas:
+            self.mapa.remove_layer(self.particulas)
+            self.particulas = None
+
     def _informar(self) -> None:
         """Escreve no painel o erro, a falta de rodada ou a rodada mostrada."""
-        if self.erro:
-            texto, cor = self.erro, 'negative'
+        if self.erro or self.erro_vento:
+            texto, cor = ' · '.join(erro for erro in (self.erro, self.erro_vento) if erro), 'negative'
         elif not self.prefs['modelo_ligado']:
             texto, cor = '', 'grey'
         elif self.rodada is None:

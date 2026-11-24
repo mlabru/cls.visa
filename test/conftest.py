@@ -27,7 +27,10 @@ def rodada(tmp_path):
             if nivel == 0:
                 valores[0, :] = 1e30                                    # abaixo do terreno
             return valores
-        valores = {'td': -25.0, 'rh': 50.0, 'u': 10.0, 'v': 0.0, 'mcape': 1000.0}   # u, v: vento de oeste
+        if nome == 'geopt':
+            return np.full((len(la), len(lo)), 9.80665 * 1000.0 * (nivel + 1))  # 1 km por nível
+        valores = {'td': -25.0, 'rh': 50.0, 'u': 10.0, 'v': 0.0, 'mcape': 1000.0,   # u, v: vento de oeste
+                   'qcloud': 0.0003}                                    # 0,3 g/kg: gelo moderado a −20 °C
         return np.full((len(la), len(lo)), valores.get(nome, 10.0))         # wspd 10 m/s
     netcdf_teste.escrever(tmp_path / 'wrfd1_2026112300.nc', netcdf_teste.lats_mercator(-30, -20, 40), np.arange(310, 320, 0.5) + 0.25,
               preencher=preencher)

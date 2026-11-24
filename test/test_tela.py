@@ -191,3 +191,24 @@ async def test_sonda_mostra_o_perfil_do_modelo(user: User, rodada, monkeypatch):
     await user.should_see('Perfil previsto (WRF)', retries=20)
     await user.should_see('Isoterma de 0 °C: abaixo do primeiro nível (1000 hPa já com -20 °C)')
     await user.should_see('270°/19 kt')
+
+
+async def test_modelo_vento_em_particulas(user: User, prefs, rodada, monkeypatch):
+    monkeypatch.setattr(config, 'MODELO_DIR', rodada)
+    prefs['modelo_ligado'] = True
+    await abrir(user)
+    await user.should_see('rodada 23/11 00Z', retries=20)
+    user.find(marker='modelo-vento').click()
+    assert prefs['modelo_vento']
+    await user.should_see('vento em partículas · FL340 · valor sob o cursor', retries=20)
+
+
+async def test_sonda_mostra_turbulencia_e_gelo(user: User, rodada, monkeypatch):
+    monkeypatch.setattr(config, 'MODELO_DIR', rodada)
+    item = impacto.Impacto('aerodromo', 'SBXX', 'Teste', -25.0, -45.0, impacto.ALTO, ('teste',), 50)
+    _com_impacto(aerodromos=[item])
+    await abrir(user)
+    user.find(marker='botao-fabia').click()
+    user.find(marker='impacto-SBXX').click()
+    await user.should_see('turb / gelo', retries=20)
+    await user.should_see('— / mod')                     # sem turbulência; gelo moderado (0,3 g/kg a −20 °C)

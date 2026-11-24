@@ -337,17 +337,34 @@ class PainelCamadas:
             camada.rotulo_aviso = ui.label()
 
     def _modelo(self) -> None:
-        """Cartão Modelo WRF: campo, nível de voo (só nos campos por nível), horário previsto e opacidade."""
+        """Cartão Modelo WRF: campo, vento em partículas, nível de voo, horário previsto e opacidade.
+
+        O nível só aparece quando é usado: campo por nível ou vento em partículas ligado.
+        """
         prefs = self.prefs
         camada = self.camadas.modelo
         campos = {campo.chave: campo.titulo for campo in modelo.CAMPOS}
         niveis = {nivel_voo: f'FL{nivel_voo:03d} · {pa // 100} hPa' for nivel_voo, pa in config.VENTO_FL_PARA_PA.items()}
+
+        def mostrar_nivel() -> None:
+            seletor_nivel.set_visibility(modelo.POR_CHAVE[prefs['modelo_campo']].por_nivel or prefs['modelo_vento'])
+
+        async def mudou_campo() -> None:
+            mostrar_nivel()
+            await camada.desenhar_imagem()               # o vento não depende do campo
+
+        async def mudou_vento() -> None:
+            mostrar_nivel()
+            await camada.desenhar_vento()
+
         with cartao('Modelo WRF', 'model_training', prefs, 'modelo_ligado', camada.aplicar):
-            ui.select(campos, label='Campo', on_change=camada.desenhar) \
+            ui.select(campos, label='Campo', on_change=mudou_campo) \
                 .bind_value(prefs, 'modelo_campo').props('dense').classes('w-full')
-            ui.select(niveis, label='Nível', on_change=camada.desenhar) \
-                .bind_value(prefs, 'modelo_fl').props('dense').classes('w-full') \
-                .bind_visibility_from(prefs, 'modelo_campo', backward=lambda chave: modelo.POR_CHAVE[chave].por_nivel)
+            ui.switch('Vento em partículas', on_change=mudou_vento) \
+                .bind_value(prefs, 'modelo_vento').props('dense').mark('modelo-vento')
+            seletor_nivel = ui.select(niveis, label='Nível', on_change=camada.desenhar) \
+                .bind_value(prefs, 'modelo_fl').props('dense').classes('w-full')
+            mostrar_nivel()
             with ui.row().classes('w-full items-center no-wrap'):
                 ui.button(icon='chevron_left', on_click=lambda: camada.andar(-1)) \
                     .props('flat dense').tooltip('1 h antes').mark('modelo-antes')

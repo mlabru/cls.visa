@@ -41,6 +41,7 @@ PADRAO = {
     'modelo_campo': 'refletividade',  # chave de modelo.POR_CHAVE
     'modelo_fl': 340,                # nível de voo dos campos por nível (os mesmos do vento)
     'modelo_opacidade': 0.7,
+    'modelo_vento': False,           # vento em partículas no nível escolhido
     'aeronaves_ligado': True,
     'aeronaves_prefixos': '',
     'aeronaves_fl': {'min': 0, 'max': 600},

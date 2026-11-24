@@ -41,7 +41,7 @@ def escrever(caminho, lats, lons, horas=3, preencher=None):
         arquivo.createVariable('lev', 'f8', ('lev',))[:] = NIVEIS
         for nome, nivel_dim in [('max_dbz', 'lev_2'), ('rainc', 'lev_2'), ('rainnc', 'lev_2'), ('mcape', 'lev_2'),
                                 ('wspd', 'lev'), ('tc', 'lev'), ('td', 'lev'), ('rh', 'lev'),
-                                ('u', 'lev'), ('v', 'lev')]:
+                                ('u', 'lev'), ('v', 'lev'), ('qcloud', 'lev'), ('geopt', 'lev')]:
             var = arquivo.createVariable(nome, 'f4', ('time', nivel_dim, 'lat', 'lon'), fill_value=1e30)
             for passo in range(horas):
                 for nivel in range(len(NIVEIS) if nivel_dim == 'lev' else 1):

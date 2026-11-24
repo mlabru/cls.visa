@@ -27,6 +27,9 @@ from tela.pecas import secao
 
 IMPACTO, SONDA = 'impacto', 'sonda'
 
+# Categorias de turbulência e gelo do modelo, curtas para caber na tabela da sonda
+ABREVIA_CATEGORIA = {'leve': 'leve', 'moderada': 'mod', 'moderado': 'mod', 'forte': 'forte'}
+
 # Círculo amarelo no ponto sondado (opções do circleMarker do Leaflet)
 ESTILO_MARCA_SONDA = {'radius': 8, 'color': '#fbbf24', 'weight': 2, 'fillOpacity': 0.15, 'interactive': False}
 
@@ -353,8 +356,8 @@ class PainelSonda:
                  f'grade de {perfil.resolucao_km:.0f} km').classes('legenda-texto')
         ui.label(f'Isoterma de 0 °C: {modelo.texto_isoterma(perfil.niveis)}').classes('text-body2')
         ui.label(PainelSonda._texto_superficie(perfil)).classes('legenda-texto')
-        with ui.grid(columns=4).classes('w-full gap-x-2 gap-y-0 sonda-vento'):
-            for titulo in ('nível', 'T / Td °C', 'UR', 'vento'):
+        with ui.grid(columns=5).classes('w-full gap-x-2 gap-y-0 sonda-vento'):
+            for titulo in ('nível', 'T / Td °C', 'UR', 'vento', 'turb / gelo'):
                 ui.label(titulo).classes('legenda-texto text-grey-6')
             for nivel in reversed(perfil.niveis):          # de cima para baixo, como o vento
                 ui.label(f'FL{nivel.fl:03d}').classes('legenda-texto').tooltip(f'{nivel.hpa} hPa')
@@ -365,7 +368,25 @@ class PainelSonda:
                     ui.label('—').classes('legenda-texto')
                 else:
                     ui.label(f'{nivel.direcao:03d}°/{nivel.velocidade_kt} kt').classes('legenda-texto')
-        ui.label('previsão do modelo, não observação').classes('legenda-texto')
+                PainelSonda._riscos(nivel)
+        ui.label(f'previsão do modelo, não observação · turbulência (Ellrod, de '
+                 f'{modelo.TURBULENCIA_HPA_MAX} hPa para cima) e gelo (água super-resfriada): '
+                 'experimentais, limiares não validados').classes('legenda-texto')
+
+    @staticmethod
+    def _riscos(nivel: modelo.NivelPerfil) -> None:
+        """Célula 'turb / gelo' de um nível: as categorias, na cor da legenda do mapa, e os valores no tooltip."""
+        partes = []
+        detalhes = []
+        for campo, valor in ((modelo.POR_CHAVE['turbulencia'], nivel.turbulencia),
+                             (modelo.POR_CHAVE['gelo'], nivel.gelo)):
+            nome = modelo.categoria(campo, valor)
+            partes.append(ABREVIA_CATEGORIA.get(nome, '—'))
+            if valor is not None:
+                detalhes.append(f'{campo.titulo}: {valor:.2f} {campo.unidade}'.replace('.', ','))
+        rotulo = ui.label(' / '.join(partes)).classes('legenda-texto')
+        if detalhes:
+            rotulo.tooltip(' · '.join(detalhes))
 
     @staticmethod
     def _texto_superficie(perfil: modelo.Perfil) -> str:

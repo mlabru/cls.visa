@@ -97,7 +97,7 @@ class Legenda:
                 escolha['origem'], escolha['tipo'], escolha['validade'],
                 prefs['severo_estilo']['cor'], tuple(prefs['wifs'].items()), prefs['wifs_fl'],
                 prefs['vento_ligado'], prefs['vento_fl'], prefs['aerodromos_ligado'],
-                prefs['modelo_ligado'], prefs['modelo_campo'], prefs['modelo_fl'],
+                prefs['modelo_ligado'], prefs['modelo_campo'], prefs['modelo_fl'], prefs['modelo_vento'],
                 self.camadas.modelo.horario, self.camadas.modelo.rodada)
 
     def desenhar(self) -> None:
@@ -222,9 +222,17 @@ class Legenda:
         if camada.rodada and camada.horario:
             partes.append(modelo.rotulo_horario(camada.horario, camada.rodada.inicio))
         _item(f'WRF · {campo.titulo}', ' · '.join(partes))
-        barra_cores(campo.paleta, campo.unidade)
+        if campo.rotulos:        # índices: faixas com nome (leve, moderada, forte)
+            bolinhas([(cor, f'{nome} (≥ {limite:g} {campo.unidade})'.replace('.', ','))
+                      for (limite, cor), nome in zip(campo.paleta, campo.rotulos, strict=True)], linha=True)
+        else:
+            barra_cores(campo.paleta, campo.unidade)
+        if campo.experimental:
+            ui.label('experimental: limiares não validados').classes('legenda-texto text-amber')
         if campo.chave == 'refletividade':
             ui.label('simulada pelo modelo: não é o radar').classes('legenda-texto')
+        if prefs['modelo_vento']:
+            ui.label(f"vento em partículas · FL{prefs['modelo_fl']:03d} · valor sob o cursor").classes('legenda-texto')
         return True
 
     def _aerodromos(self) -> bool:

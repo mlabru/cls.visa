@@ -105,6 +105,8 @@ SATELITE_ATUALIZA_S = 300       # o satélite tem imagem nova a cada 10 min
 # Um arquivo por domínio e rodada: wrfd<domínio>_<AAAAMMDDHH>.nc (d1 = maior, d2 = interno). Veja modelo.py.
 MODELO_DIR = Path(os.environ.get('VISA_MODELO_DIR', RAIZ / 'data' / 'netcdf'))
 MODELO_CACHE_IMAGENS = 150      # imagens prontas em memória (uma rodada tem 61 horários)
+MODELO_VENTO_PASSO = 0.25        # graus: grade do vento em partículas (~100 KB por horário)
+MODELO_CACHE_VENTOS = 30         # ventos prontos em memória (horários × níveis)
 MODELO_PROCURA_S = 600          # de quanto em quanto tempo a camada procura uma rodada nova na pasta
 # Idade da rodada (desde o início): uma rodada por dia, que chega ~14 h depois do início. A
 # normal fica entre ~14 h e ~38 h; passar de 40 h é uma rodada que faltou; de 64 h, duas.

@@ -146,6 +146,10 @@ class Grade:
         """y de Mercator do centro de cada linha (do norte para o sul)."""
         return self.norte_y - (np.arange(self.ny) + 0.5) * self.passo_y
 
+    def centros_lat(self) -> np.ndarray:
+        """Latitude do centro de cada linha (do norte para o sul), em graus."""
+        return np.array([geo.lat_de_mercator(float(y)) for y in self.centros_y()])
+
     def indice(self, lat: float, lon: float) -> tuple[int, int] | None:
         """(linha, coluna) da célula que contém o ponto; None fora da grade."""
         coluna = math.floor((lon - self.oeste) / self.passo_lon)
@@ -276,6 +280,10 @@ class Campo:
         por_nivel: True se tem um valor por nível de pressão (escolhido pelo FL).
         paleta: (limite inferior, cor) em ordem crescente; abaixo do primeiro limite, transparente.
         fator: multiplica o valor do arquivo (ex.: m/s → kt).
+        rotulos: nome de cada faixa da paleta (ex.: leve, moderada, forte); vazio = a legenda
+            mostra os números.
+        experimental: índice com limiares ainda não validados (a tela avisa).
+        so_externo: calculado só no domínio externo (d1), sem encaixar o d2.
     """
     chave: str
     titulo: str
@@ -284,6 +292,9 @@ class Campo:
     por_nivel: bool
     paleta: tuple[tuple[float, str], ...]
     fator: float = 1.0
+    rotulos: tuple[str, ...] = ()
+    experimental: bool = False
+    so_externo: bool = False
 
 
 CAMPOS = [
@@ -311,8 +322,85 @@ CAMPOS = [
     Campo('umidade', 'Umidade relativa', '%', 'rh', True, (
         (50, '#d9f0a3'), (60, '#addd8e'), (70, '#78c679'), (80, '#41ab5d'), (90, '#238443'),
         (95, '#005a32'))),
+    # Índices (ver DECISOES 2.7): limiares de partida, a calibrar com observações (PIREP).
+    # Ellrod & Knapp (1992): TI1 em 10⁻⁷ s⁻². Só no d1: o índice foi feito para grades grossas,
+    # e no d2 (5 km) a convecção resolvida pelo modelo o satura (24/11 18Z, 250 hPa: 15% da
+    # área do d2 acima de 12, contra 2% do d1; 20% desses pixels sob ≥ 30 dBZ simulados).
+    Campo('turbulencia', 'Turbulência (Ellrod TI1)', '×10⁻⁷ s⁻²', 'u+v+geopt', True, (
+        (4, '#fde047'), (8, '#f97316'), (12, '#dc2626')),
+        rotulos=('leve', 'moderada', 'forte'), experimental=True, so_externo=True),
+    # Água de nuvem líquida entre 0 e −20 °C (super-resfriada), em g/kg. Nos dados de
+    # 24/11 18Z em 500 hPa: mediana 0,05, percentil 90 0,33, percentil 99 0,61 g/kg.
+    Campo('gelo', 'Gelo (água super-resfriada)', 'g/kg', 'qcloud+tc', True, (
+        (0.05, '#a5f3fc'), (0.2, '#22d3ee'), (0.5, '#0e7490')),
+        rotulos=('leve', 'moderado', 'forte'), experimental=True),
 ]
 POR_CHAVE = {campo.chave: campo for campo in CAMPOS}
+
+
+GRAVIDADE = 9.80665             # m/s²: geopotencial (m²/s²) ÷ g = altura (m)
+_RAIO_TERRA_M = geo.RAIO_TERRA_KM * 1000
+GELO_T_MAX, GELO_T_MIN = 0.0, -20.0     # °C: a faixa da água super-resfriada que forma gelo
+# O TI1 é para turbulência em céu claro na alta troposfera; perto do chão, o cisalhamento vem
+# do atrito e do aquecimento, e o índice marca demais (24/11 18Z: 'moderada' em 900 hPa).
+TURBULENCIA_HPA_MAX = 500              # só de 500 hPa (FL180) para cima
+
+
+def ellrod_ti1(u: np.ndarray, v: np.ndarray, z: np.ndarray, passo_lon: float, passo_y: float,
+               lats: np.ndarray) -> np.ndarray:
+    """Índice de turbulência TI1 de Ellrod: cisalhamento vertical × deformação horizontal.
+
+    TI1 = VWS × DEF, com VWS = |∂V/∂z| e DEF = √[(∂u/∂x − ∂v/∂y)² + (∂v/∂x + ∂u/∂y)²].
+
+    O cisalhamento é a diferença centrada entre o nível de baixo e o de cima (nas pontas, com
+    o vizinho). Na grade Mercator, uma célula mede, em metros, passo × R × cos(lat) nas duas
+    direções (passo_lon em graus, passo_y em y de Mercator).
+
+    Parâmetros:
+        u, v: vento (m/s), forma (níveis, linhas, colunas), linha 0 no norte; ≥ 2 de cada.
+        z: altura de cada nível (m), mesma forma.
+        passo_lon: largura de uma célula, graus.
+        passo_y: altura de uma célula, em y de Mercator.
+        lats: latitude do centro de cada linha (do norte para o sul).
+
+    Retorna:
+        TI1 em 10⁻⁷ s⁻², na mesma forma (NaN onde falta valor, ex.: abaixo do terreno).
+    """
+    coseno = np.cos(np.radians(lats))[None, :, None]
+    largura_m = math.radians(passo_lon) * _RAIO_TERRA_M * coseno
+    altura_m = passo_y * _RAIO_TERRA_M * coseno
+    with np.errstate(invalid='ignore', divide='ignore'):
+        espessura = np.gradient(z, axis=0)
+        cisalhamento = np.hypot(np.gradient(u, axis=0) / espessura, np.gradient(v, axis=0) / espessura)
+        du_dx = np.gradient(u, axis=2) / largura_m
+        dv_dx = np.gradient(v, axis=2) / largura_m
+        du_dy = -np.gradient(u, axis=1) / altura_m      # linha 0 no norte: descer uma linha é ir para o sul
+        dv_dy = -np.gradient(v, axis=1) / altura_m
+        deformacao = np.hypot(du_dx - dv_dy, dv_dx + du_dy)
+    return cisalhamento * deformacao * 1e7
+
+
+def agua_super_resfriada(temperatura: np.ndarray, agua_nuvem: np.ndarray) -> np.ndarray:
+    """Água de nuvem (g/kg) onde a temperatura está entre GELO_T_MIN e GELO_T_MAX; NaN fora.
+
+    Parâmetros:
+        temperatura: °C.
+        agua_nuvem: razão de mistura da água de nuvem (qcloud), kg/kg.
+    """
+    with np.errstate(invalid='ignore'):
+        na_faixa = (temperatura <= GELO_T_MAX) & (temperatura >= GELO_T_MIN)
+    return np.where(na_faixa, agua_nuvem * 1000, np.nan)
+
+
+def categoria(campo: Campo, valor: float | None) -> str | None:
+    """O rótulo da faixa do valor ('leve', 'moderada'...); None abaixo da primeira ou sem valor."""
+    if valor is None or not math.isfinite(valor) or not campo.rotulos:
+        return None
+    rotulo = None
+    for (limite, _), nome in zip(campo.paleta, campo.rotulos, strict=True):
+        if valor >= limite:
+            rotulo = nome
+    return rotulo
 
 
 def ler_campo(caminho: Path, campo: Campo, horario: datetime, nivel_hpa: int | None = None) -> np.ndarray:
@@ -341,6 +429,19 @@ def ler_campo(caminho: Path, campo: Campo, horario: datetime, nivel_hpa: int | N
             raise Indisponivel(f'Modelo: {caminho.name} não tem o nível {nivel_hpa} hPa')
         nivel = info.niveis_hpa.index(nivel_hpa)
 
+    if campo.chave == 'turbulencia':
+        if nivel_hpa > TURBULENCIA_HPA_MAX:
+            raise Indisponivel(f'Turbulência (Ellrod): só de FL{vento.fl_da_pressao(TURBULENCIA_HPA_MAX * 100):03d} '
+                               f'({TURBULENCIA_HPA_MAX} hPa) para cima')
+        # Três níveis (o de baixo, o pedido e o de cima) para o cisalhamento vertical
+        indices = sorted({max(nivel - 1, 0), nivel, min(nivel + 1, len(info.niveis_hpa) - 1)})
+        u, v, z = (np.stack([_ler(caminho, variavel, passo, indice) for indice in indices])
+                   for variavel in ('u', 'v', 'geopt'))
+        grade = info.grade
+        ti1 = ellrod_ti1(u, v, z / GRAVIDADE, grade.passo_lon, grade.passo_y, grade.centros_lat())
+        return ti1[indices.index(nivel)]
+    if campo.chave == 'gelo':
+        return agua_super_resfriada(_ler(caminho, 'tc', passo, nivel), _ler(caminho, 'qcloud', passo, nivel))
     if campo.chave == 'chuva_1h':
         if passo == 0:
             return np.full((info.grade.ny, info.grade.nx), np.nan, dtype=np.float32)
@@ -393,7 +494,8 @@ def campo_da_rodada(rodada: Rodada, campo: Campo, horario: datetime, nivel_hpa: 
                     ) -> tuple[np.ndarray, Grade]:
     """O campo de todos os domínios da rodada num só, na resolução do domínio mais fino.
 
-    Um domínio interno sem o horário pedido (previsão mais curta) é deixado de fora.
+    Um domínio interno sem o horário pedido (previsão mais curta) é deixado de fora, e um
+    campo `so_externo` usa só o d1 (com as mesmas bordas: a imagem só tem menos pixels).
 
     Exceções:
         Indisponivel: o domínio externo não tem o campo.
@@ -401,7 +503,7 @@ def campo_da_rodada(rodada: Rodada, campo: Campo, horario: datetime, nivel_hpa: 
     externo = rodada.arquivos[0]
     valores = ler_campo(externo, campo, horario, nivel_hpa)
     grade = cabecalho(externo).grade
-    for interno in rodada.arquivos[1:]:
+    for interno in ([] if campo.so_externo else rodada.arquivos[1:]):
         try:
             valores_internos = ler_campo(interno, campo, horario, nivel_hpa)
         except Indisponivel as erro:
@@ -488,11 +590,95 @@ def horarios_da_rodada(rodada: Rodada) -> tuple[datetime, ...]:
 
 
 # ---------------------------------------------------------------------------
+# Vento em partículas (formato do leaflet-velocity)
+# ---------------------------------------------------------------------------
+
+def para_grade_regular(valores: np.ndarray, grade: Grade, passo: float) -> tuple[np.ndarray, float, float]:
+    """Reamostra um campo da grade Mercator para uma grade regular em lat/lon (vizinho mais próximo).
+
+    O leaflet-velocity só aceita grade com o mesmo passo em latitude em toda a área; a do
+    modelo é Mercator (o passo em latitude diminui para o sul).
+
+    Parâmetros:
+        valores: o campo, linha 0 no norte.
+        grade: a grade dele.
+        passo: o passo da grade nova, em graus (o mesmo em lat e lon).
+
+    Retorna:
+        (campo novo, linha 0 no norte; latitude do centro da primeira linha; longitude do
+        centro da primeira coluna).
+    """
+    norte = geo.lat_de_mercator(grade.norte_y)
+    sul = geo.lat_de_mercator(grade.sul_y)
+    linhas = max(1, math.floor((norte - sul) / passo))
+    colunas = max(1, math.floor((grade.leste - grade.oeste) / passo))
+    lat_inicial = norte - passo / 2
+    lon_inicial = grade.oeste + passo / 2
+    lats = lat_inicial - np.arange(linhas) * passo
+    lons = lon_inicial + np.arange(colunas) * passo
+    ys = np.array([geo.mercator_y(float(lat)) for lat in lats])
+    origem_linhas = np.clip(np.floor((grade.norte_y - ys) / grade.passo_y).astype(int), 0, grade.ny - 1)
+    origem_colunas = np.clip(np.floor((lons - grade.oeste) / grade.passo_lon).astype(int), 0, grade.nx - 1)
+    return valores[np.ix_(origem_linhas, origem_colunas)], lat_inicial, lon_inicial
+
+
+def _registro_velocity(valores: np.ndarray, numero: int, lat_inicial: float, lon_inicial: float,
+                       passo: float, inicio: datetime, horas: int) -> dict:
+    """Um registro (U ou V) no formato do leaflet-velocity; NaN vira null (sem dado)."""
+    linhas, colunas = valores.shape
+    dados = [None if not math.isfinite(valor) else round(valor, 2) for valor in valores.ravel().tolist()]
+    return {'header': {'parameterCategory': 2, 'parameterNumber': numero,   # 2 = U, 3 = V
+                       'lo1': lon_inicial, 'la1': lat_inicial, 'dx': passo, 'dy': passo,
+                       'nx': colunas, 'ny': linhas,
+                       'refTime': inicio.strftime('%Y-%m-%dT%H:%M:%SZ'), 'forecastTime': horas},
+            'data': dados}
+
+
+_VENTOS: dict[tuple, list[dict]] = {}
+
+
+def vento_velocity(rodada: Rodada, horario: datetime, nivel_hpa: int) -> list[dict]:
+    """O vento do nível, [U, V] em m/s, no formato do leaflet-velocity, guardado em cache.
+
+    Só o domínio externo (d1), reamostrado em config.MODELO_VENTO_PASSO: as partículas são uma
+    visão geral, e a grade de 0,05° do d2 daria vários MB por horário. O valor exato num
+    ponto está na sonda (`perfil`, pelo d2).
+
+    Exceções:
+        Indisponivel: nível ou horário fora do arquivo, arquivo ilegível.
+    """
+    externo = rodada.arquivos[0]
+    try:
+        versao = externo.stat().st_mtime_ns
+    except OSError as erro:
+        raise Indisponivel(f'Modelo: arquivo {externo.name} sumiu') from erro
+    chave = (rodada.nome, versao, horario, nivel_hpa)
+    if chave not in _VENTOS:
+        info = cabecalho(externo)
+        if horario not in info.horarios:
+            raise Indisponivel(f'Modelo: {externo.name} não tem o horário {horario:%d/%m %H}Z')
+        if nivel_hpa not in info.niveis_hpa:
+            raise Indisponivel(f'Modelo: {externo.name} não tem o nível {nivel_hpa} hPa')
+        passo_tempo = info.horarios.index(horario)
+        nivel = info.niveis_hpa.index(nivel_hpa)
+        passo = max(config.MODELO_VENTO_PASSO, info.grade.passo_lon)
+        horas = round((horario - rodada.inicio).total_seconds() / 3600)
+        registros = []
+        for variavel, numero in (('u', 2), ('v', 3)):
+            regular, lat_inicial, lon_inicial = para_grade_regular(
+                _ler(externo, variavel, passo_tempo, nivel), info.grade, passo)
+            registros.append(_registro_velocity(regular, numero, lat_inicial, lon_inicial, passo,
+                                                rodada.inicio, horas))
+        cache.guardar(_VENTOS, chave, registros, config.MODELO_CACHE_VENTOS)
+    return _VENTOS[chave]
+
+
+# ---------------------------------------------------------------------------
 # Perfil vertical num ponto (para a sonda)
 # ---------------------------------------------------------------------------
 
 PERFIL_TOPO_HPA = 100           # níveis acima deste ficam de fora (50 hPa vem vazio do modelo)
-_PERFIL_3D = ('tc', 'td', 'rh', 'u', 'v')
+_PERFIL_3D = ('tc', 'td', 'rh', 'u', 'v', 'qcloud')
 _PERFIL_SUPERFICIE = ('mcape', 'max_dbz')
 
 
@@ -507,6 +693,8 @@ class NivelPerfil:
         umidade: umidade relativa, %.
         direcao: de onde vem o vento, graus (1 a 360).
         velocidade_kt: velocidade do vento, kt.
+        turbulencia: TI1 de Ellrod no d1, 10⁻⁷ s⁻² (None sem valor).
+        gelo: água super-resfriada, g/kg (None fora de 0 a −20 °C ou sem valor).
     """
     hpa: int
     fl: int
@@ -515,6 +703,8 @@ class NivelPerfil:
     umidade: float | None
     direcao: int | None
     velocidade_kt: int | None
+    turbulencia: float | None = None
+    gelo: float | None = None
 
 
 @dataclass(frozen=True)
@@ -587,8 +777,53 @@ def _chuva_da_hora(valores: dict) -> float | None:
     return max(sum(agora) - sum(antes), 0.0)
 
 
-def _niveis_do_perfil(niveis_hpa: tuple[int, ...], valores: dict[str, np.ndarray]) -> tuple[NivelPerfil, ...]:
-    """Os níveis com temperatura (acima do terreno), de baixo para cima, até PERFIL_TOPO_HPA."""
+def _ti1_no_ponto(rodada: Rodada, horario: datetime, lat: float, lon: float) -> dict[int, float]:
+    """TI1 de Ellrod no ponto, nos níveis até TURBULENCIA_HPA_MAX, pelo d1 (como no mapa).
+
+    Lê só uma janela de 3×3 células em volta do ponto (a deformação precisa dos vizinhos), em
+    todos os níveis, de u, v e geopotencial.
+
+    Retorna:
+        nível (hPa) -> TI1 em 10⁻⁷ s⁻²; vazio se o ponto está fora do d1 ou falta o horário.
+    """
+    externo = rodada.arquivos[0]
+    info = cabecalho(externo)
+    indice = info.grade.indice(lat, lon)
+    if indice is None or horario not in info.horarios:
+        return {}
+    linha, coluna = indice                       # linha 0 no norte
+    grade = info.grade
+    linha_arquivo = grade.ny - 1 - linha         # no arquivo, linha 0 no sul
+    inicio_l, fim_l = max(linha_arquivo - 1, 0), min(linha_arquivo + 2, grade.ny)
+    inicio_c, fim_c = max(coluna - 1, 0), min(coluna + 2, grade.nx)
+    passo = info.horarios.index(horario)
+    try:
+        with _LEITURA, netCDF4.Dataset(externo) as arquivo:
+            u, v, geopotencial = (
+                np.ma.filled(np.ma.asarray(arquivo[nome][passo, :, inicio_l:fim_l, inicio_c:fim_c], dtype=float),
+                             np.nan)[:, ::-1, :]                               # linha 0 no norte
+                for nome in ('u', 'v', 'geopt'))
+    except (OSError, IndexError) as erro:
+        raise Indisponivel(f'Modelo: não foi possível ler a turbulência de {externo.name} ({erro})') from erro
+    # Linhas da janela (norte para o sul) na grade, e o ponto dentro da janela
+    linhas_grade = [grade.ny - 1 - linha_arq for linha_arq in range(fim_l - 1, inicio_l - 1, -1)]
+    lats = grade.centros_lat()[linhas_grade]
+    ti1 = ellrod_ti1(u, v, geopotencial / GRAVIDADE, grade.passo_lon, grade.passo_y, lats)
+    no_ponto = ti1[:, linhas_grade.index(linha), coluna - inicio_c]
+    return {hpa: float(valor) for hpa, valor in zip(info.niveis_hpa, no_ponto, strict=True)
+            if math.isfinite(valor) and hpa <= TURBULENCIA_HPA_MAX}
+
+
+def _niveis_do_perfil(niveis_hpa: tuple[int, ...], valores: dict[str, np.ndarray],
+                      ti1: dict[int, float] | None = None) -> tuple[NivelPerfil, ...]:
+    """Os níveis com temperatura (acima do terreno), de baixo para cima, até PERFIL_TOPO_HPA.
+
+    Parâmetros:
+        niveis_hpa: os níveis do arquivo, na ordem dos valores.
+        valores: de _ler_ponto.
+        ti1: de _ti1_no_ponto (nível -> TI1); None ou vazio = sem turbulência.
+    """
+    ti1 = ti1 or {}
     resultado = []
     for indice, hpa in sorted(enumerate(niveis_hpa), key=lambda par: -par[1]):
         temperatura = _numero(valores['tc'][indice])
@@ -598,9 +833,13 @@ def _niveis_do_perfil(niveis_hpa: tuple[int, ...], valores: dict[str, np.ndarray
         direcao, velocidade = (None, None)
         if vento_u is not None and vento_v is not None:
             direcao, velocidade = vento.direcao_velocidade(vento_u, vento_v)
+        agua_nuvem = _numero(valores['qcloud'][indice])
+        gelo = None
+        if agua_nuvem is not None and GELO_T_MIN <= temperatura <= GELO_T_MAX:
+            gelo = agua_nuvem * 1000
         resultado.append(NivelPerfil(hpa, vento.fl_da_pressao(hpa * 100), temperatura,
                                      _numero(valores['td'][indice]), _numero(valores['rh'][indice]),
-                                     direcao, velocidade))
+                                     direcao, velocidade, ti1.get(hpa), gelo))
     return tuple(resultado)
 
 
@@ -629,7 +868,8 @@ def perfil(rodada: Rodada, horario: datetime, lat: float, lon: float) -> Perfil 
         passo = info.horarios.index(horario)
         valores = _ler_ponto(caminho, passo, info.grade.ny - 1 - linha, coluna)
         resolucao_km = info.grade.passo_lon * geo.KM_POR_GRAU * math.cos(math.radians(lat))
-        return Perfil(rodada, horario, caminho, resolucao_km, _niveis_do_perfil(info.niveis_hpa, valores),
+        niveis = _niveis_do_perfil(info.niveis_hpa, valores, _ti1_no_ponto(rodada, horario, lat, lon))
+        return Perfil(rodada, horario, caminho, resolucao_km, niveis,
                       _numero(valores['mcape']), _numero(valores['max_dbz']), _chuva_da_hora(valores))
     if horario not in horarios_da_rodada(rodada):
         raise Indisponivel(f'Modelo: a rodada {rodada.nome} não tem o horário {horario:%d/%m %H}Z')
