@@ -2,28 +2,39 @@
 Centro Logístico de Simulação Meteorológica
 Copyright (c) 1995-2026, Instituto de Controle do Espaço Aéreo
 
-Modelo numérico (WRF): lê os arquivos netCDF da pasta e devolve os campos como imagem.
+Modelo numérico (WRF): lê os arquivos netCDF da pasta e devolve os campos
+como imagem.
 
-Os arquivos seguem o padrão  wrfd<domínio>_<AAAAMMDDHH>.nc : um por domínio e por rodada
-(d1 = o domínio maior, ~18 km; d2 = o interno, ~5 km). Cada um tem a previsão de hora em hora
-(variável `time`) em 22 níveis de pressão (`lev`, hPa); os campos de superfície usam `lev_2`.
+Os arquivos seguem o padrão  wrfd<domínio>_<AAAAMMDDHH>.nc : um por domínio
+e por rodada (d1 = o domínio maior, ~18 km; d2 = o interno, ~5 km).  Cada um
+tem a previsão de hora em hora (variável `time`) em 22 níveis de pressão
+(`lev`, hPa); os campos de superfície usam `lev_2`.
 
 O que este módulo garante:
-  - **a grade é Mercator** (a do mapa): as latitudes do arquivo não são igualmente espaçadas,
-    mas o y de Mercator é. Assim cada campo vira imagem sem reprojeção. O arquivo não diz a
-    projeção; se um dia vier em outra, `grade_das_coordenadas` recusa em vez de desenhar torto;
-  - **um campo só por imagem:** o d2 é encaixado dentro do d1 (`compor`), na resolução do d2;
-  - **as datas certas:** a referência do arquivo é "hours since 1-1-1", no calendário misto
-    (juliano/gregoriano). Com o `datetime` do Python (gregoriano proléptico) as datas sairiam
-    2 dias adiantadas; por isso são lidas pelo `cftime` (`netCDF4.num2date`);
-  - **leitura sob trava:** a biblioteca do netCDF não pode ser usada por duas threads ao mesmo
-    tempo. Cada leitura abre o arquivo, lê um campo 2D (10–150 ms) e fecha, dentro de `_LEITURA`.
 
-É previsão, não observação: a refletividade daqui é simulada pelo modelo e tem legenda própria.
-Não alimenta o painel de impacto nem o FAB.ia.
+  - **a grade é Mercator** (a do mapa): as latitudes do arquivo não são
+    igualmente espaçadas, mas o y de Mercator é.  Assim cada campo vira
+    imagem sem reprojeção.  O arquivo não diz a projeção; se um dia vier em
+    outra, `grade_das_coordenadas` recusa em vez de desenhar torto;
 
-Quem usa: a rota /modelo/imagem (main.py), a camada `CamadaModelo` (camadas/prevista.py), o painel,
-a legenda e a barra de saúde (tela/), e a sonda (`perfil`, sonda.py). Não importa o NiceGUI.
+  - **um campo só por imagem:** o d2 é encaixado dentro do d1 (`compor`), na
+    resolução do d2;
+
+  - **as datas certas:** a referência do arquivo é "hours since 1-1-1", no
+    calendário misto (juliano/gregoriano).  Com o `datetime` do Python
+    (gregoriano proléptico) as datas sairiam 2 dias adiantadas; por isso são
+    lidas pelo `cftime` (`netCDF4.num2date`);
+
+  - **leitura sob trava:** a biblioteca do netCDF não pode ser usada por
+    duas threads ao mesmo tempo.  Cada leitura abre o arquivo, lê um campo
+    2D (10–150 ms) e fecha, dentro de `_LEITURA`.
+
+É previsão, não observação: a refletividade daqui é simulada pelo modelo e
+tem legenda própria.  Não alimenta o painel de impacto nem o FAB.ia.
+
+Quem usa: a rota /modelo/imagem (main.py), a camada `CamadaModelo`
+(camadas/prevista.py), o painel, a legenda e a barra de saúde (tela/), e a
+sonda (`perfil`, sonda.py).  Não importa o NiceGUI.
 """
 import io
 import itertools
